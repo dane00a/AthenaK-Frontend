@@ -25,21 +25,38 @@ export function HeatmapView({ runId, name }: Props) {
   const [profileMode, setProfileMode] = useState(false);
   const [pts, setPts] = useState<Point[]>([]); // len 0 -> nothing, 1 -> first click, 2 -> profile ready
 
+  // Probe-through-time state
+  const [probeMode, setProbeMode] = useState(false);
+  const [probe, setProbe] = useState<Point | null>(null);
+
   useEffect(() => {
     if (!variable && varsQ.data?.variables.length) {
       setVariable(varsQ.data.variables[0]);
     }
   }, [varsQ.data, variable]);
 
-  // Switching variable / axis / index invalidates any in-progress profile pick.
+  // Switching variable / axis / index invalidates any in-progress picks.
   useEffect(() => {
     setPts([]);
+    setProbe(null);
   }, [variable, axis, index]);
 
   const fieldQ = useQuery({
     queryKey: ["field", runId, name, variable, axis, index],
     queryFn: () => api.getField(runId, name, { var: variable!, axis, index }),
     enabled: variable !== null,
+  });
+
+  const timeseriesQ = useQuery({
+    queryKey: ["timeseries", runId, variable, probe?.x, probe?.y],
+    queryFn: () =>
+      api.getPointTimeseries(runId, {
+        var: variable!,
+        x: Math.round(probe!.x),
+        y: Math.round(probe!.y),
+      }),
+    enabled: variable !== null && probe !== null,
+    retry: false,
   });
 
   const profileQ = useQuery({
@@ -70,39 +87,64 @@ export function HeatmapView({ runId, name }: Props) {
 
   const onHeatmapClick = useCallback(
     (event: Readonly<{ points: ReadonlyArray<{ x?: unknown; y?: unknown }> }>) => {
-      if (!profileMode) return;
       const p = event.points?.[0];
       const x = typeof p?.x === "number" ? p.x : Number(p?.x);
       const y = typeof p?.y === "number" ? p.y : Number(p?.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
       const pt: Point = { x, y };
-      setPts((prev) => {
-        if (prev.length >= 2) return [pt];
-        return [...prev, pt];
-      });
+      if (profileMode) {
+        setPts((prev) => (prev.length >= 2 ? [pt] : [...prev, pt]));
+      } else if (probeMode) {
+        setProbe(pt);
+      }
     },
-    [profileMode],
+    [profileMode, probeMode],
   );
 
   if (varsQ.isLoading) return <p className="text-foreground/60">Loading variables…</p>;
   if (varsQ.error)
     return <p className="text-red-400">Failed: {(varsQ.error as Error).message}</p>;
 
-  // Overlay trace: endpoints + connecting line if we have both.
-  const overlayTraces = pts.length
-    ? [
-        {
-          x: pts.map((p) => p.x),
-          y: pts.map((p) => p.y),
-          mode: "lines+markers" as const,
-          type: "scatter" as const,
-          line: { color: "#f59e0b", width: 2 },
-          marker: { color: "#f59e0b", size: 8, symbol: "x" },
-          hoverinfo: "skip" as const,
-          showlegend: false,
-        },
-      ]
-    : [];
+  // Overlay traces: profile endpoints (amber) and probe point (cyan).
+  type OverlayTrace = {
+    x: number[];
+    y: number[];
+    mode: "lines+markers" | "markers";
+    type: "scatter";
+    line?: { color: string; width?: number };
+    marker: {
+      color: string;
+      size: number;
+      symbol: string;
+      line?: { width: number };
+    };
+    hoverinfo: "skip";
+    showlegend: false;
+  };
+  const overlayTraces: OverlayTrace[] = [];
+  if (pts.length) {
+    overlayTraces.push({
+      x: pts.map((p) => p.x),
+      y: pts.map((p) => p.y),
+      mode: "lines+markers" as const,
+      type: "scatter" as const,
+      line: { color: "#f59e0b", width: 2 },
+      marker: { color: "#f59e0b", size: 8, symbol: "x" },
+      hoverinfo: "skip" as const,
+      showlegend: false,
+    });
+  }
+  if (probe) {
+    overlayTraces.push({
+      x: [probe.x],
+      y: [probe.y],
+      mode: "markers" as const,
+      type: "scatter" as const,
+      marker: { color: "#22d3ee", size: 10, symbol: "circle-open", line: { width: 2 } },
+      hoverinfo: "skip" as const,
+      showlegend: false,
+    });
+  }
 
   return (
     <div className="space-y-3">
@@ -147,21 +189,42 @@ export function HeatmapView({ runId, name }: Props) {
             checked={profileMode}
             onChange={(e) => {
               setProfileMode(e.target.checked);
+              if (e.target.checked) setProbeMode(false);
               setPts([]);
             }}
           />
-          Profile tool
+          Line profile
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={probeMode}
+            onChange={(e) => {
+              setProbeMode(e.target.checked);
+              if (e.target.checked) setProfileMode(false);
+              setProbe(null);
+            }}
+          />
+          Probe through time
         </label>
         {profileMode && (
           <span className="text-foreground/60">
             {pts.length === 0 && "click the first endpoint"}
             {pts.length === 1 && "click the second endpoint"}
-            {pts.length === 2 && "drag to pick a new line (click resets)"}
+            {pts.length === 2 && "click to pick a new line"}
           </span>
         )}
-        {pts.length > 0 && (
+        {probeMode && (
+          <span className="text-foreground/60">
+            {probe === null ? "click a pixel to probe" : "click elsewhere to re-pick"}
+          </span>
+        )}
+        {(pts.length > 0 || probe) && (
           <button
-            onClick={() => setPts([])}
+            onClick={() => {
+              setPts([]);
+              setProbe(null);
+            }}
             className="rounded border border-muted px-2 py-0.5 text-foreground/70 hover:bg-muted/40"
           >
             Clear
@@ -203,6 +266,58 @@ export function HeatmapView({ runId, name }: Props) {
           style={{ width: "100%" }}
           config={{ displaylogo: false, responsive: true }}
         />
+      )}
+
+      {probeMode && probe && (
+        <div className="rounded-lg border border-muted p-3">
+          <h3 className="mb-2 text-xs font-semibold text-foreground/70">
+            Point time-series · ({probe.x.toFixed(1)}, {probe.y.toFixed(1)}) · across all
+            <code className="mx-1">*.athdf</code> dumps
+          </h3>
+          {timeseriesQ.isLoading && <p className="text-foreground/60">Sampling…</p>}
+          {timeseriesQ.error && (
+            <p className="text-red-400">Failed: {(timeseriesQ.error as Error).message}</p>
+          )}
+          {timeseriesQ.data && (
+            <>
+              <p className="mb-2 text-xs text-foreground/60">
+                {timeseriesQ.data.files.length} dump
+                {timeseriesQ.data.files.length === 1 ? "" : "s"}
+              </p>
+              <Plot
+                data={[
+                  {
+                    x: timeseriesQ.data.t,
+                    y: timeseriesQ.data.values,
+                    mode: "lines+markers" as const,
+                    type: "scatter" as const,
+                    line: { color: "#22d3ee" },
+                    name: timeseriesQ.data.variable,
+                  },
+                ]}
+                layout={{
+                  autosize: true,
+                  height: 280,
+                  margin: { l: 50, r: 20, t: 20, b: 40 },
+                  paper_bgcolor: "transparent",
+                  plot_bgcolor: "rgba(255,255,255,0.02)",
+                  font: { color: "#e2e8f0" },
+                  xaxis: {
+                    title: { text: "t / dump index" },
+                    gridcolor: "rgba(255,255,255,0.08)",
+                  },
+                  yaxis: {
+                    title: { text: timeseriesQ.data.variable },
+                    gridcolor: "rgba(255,255,255,0.08)",
+                  },
+                }}
+                useResizeHandler
+                style={{ width: "100%" }}
+                config={{ displaylogo: false, responsive: true }}
+              />
+            </>
+          )}
+        </div>
       )}
 
       {profileMode && pts.length === 2 && (

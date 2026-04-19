@@ -203,6 +203,30 @@ export const api = {
       y: number[];
     }>(`/api/runs/${id}/outputs/${encodeURIComponent(name)}/profile?${q}`);
   },
+  getPointTimeseries: (
+    id: number,
+    params: {
+      var: string;
+      x: number;
+      y: number;
+      z?: number;
+      pattern?: string;
+    },
+  ) => {
+    const q = new URLSearchParams({
+      var: params.var,
+      x: String(params.x),
+      y: String(params.y),
+      z: String(params.z ?? 0),
+      pattern: params.pattern ?? "*.athdf",
+    }).toString();
+    return request<{
+      variable: string;
+      t: number[];
+      values: number[];
+      files: string[];
+    }>(`/api/runs/${id}/timeseries?${q}`);
+  },
   getStorage: (id: number) =>
     request<{
       total_bytes: number;

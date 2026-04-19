@@ -166,6 +166,64 @@ def _bilinear(slab: np.ndarray, ys: np.ndarray, xs: np.ndarray) -> np.ndarray:
     return a * (1 - dx) * (1 - dy) + b * dx * (1 - dy) + c * (1 - dx) * dy + d * dx * dy
 
 
+def _file_time(f: h5py.File) -> float | None:
+    """Best-effort extraction of an absolute simulation time from a dump."""
+    for key in ("Time", "time", "t"):
+        v = f.attrs.get(key)
+        if v is None:
+            continue
+        try:
+            return float(np.asarray(v).ravel()[0])
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+@dataclass
+class TimeSeries:
+    variable: str
+    t: list[float]           # simulation time if present, else dump index
+    values: list[float]      # one value per file
+    files: list[str]         # filenames matched, same order as `values`
+
+
+def read_point_timeseries(
+    files: list[Path],
+    variable: str,
+    x: int,
+    y: int,
+    z: int = 0,
+) -> TimeSeries:
+    """Open each HDF5 file in ``files`` (in order), read ``variable`` at the
+    integer cell (z, y, x), return a 1D time series.
+
+    Coordinates are in *downsampled* slab space (pixel space of the rendered
+    heatmap) so the UI can pass the pixel the user clicked on. We downsample
+    the full 3D array with the same block-mean reducer used by read_field.
+    """
+    if not files:
+        raise ValueError("no files to scan")
+    t_out: list[float] = []
+    values: list[float] = []
+    names: list[str] = []
+    for idx, path in enumerate(files):
+        with h5py.File(path, "r") as f:
+            arr = _load_array(f, variable)
+            if arr.ndim < 3:
+                raise ValueError(f"expected ≥3D array for {variable}, got {arr.shape}")
+            while arr.ndim > 3:
+                arr = arr[0]
+            slab3d = _downsample(np.asarray(arr, dtype=float))
+            zz = max(0, min(z, slab3d.shape[0] - 1))
+            yy = max(0, min(y, slab3d.shape[1] - 1))
+            xx = max(0, min(x, slab3d.shape[2] - 1))
+            values.append(float(slab3d[zz, yy, xx]))
+            t = _file_time(f)
+            t_out.append(t if t is not None else float(idx))
+            names.append(path.name)
+    return TimeSeries(variable=variable, t=t_out, values=values, files=names)
+
+
 def read_profile(
     path: Path,
     variable: str,

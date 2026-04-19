@@ -120,6 +120,32 @@ export const api = {
     request<{ columns: string[]; rows: number[][] }>(
       `/api/runs/${id}/outputs/${encodeURIComponent(name)}/series`,
     ),
+  listFieldVariables: (id: number, name: string) =>
+    request<{ variables: string[] }>(
+      `/api/runs/${id}/outputs/${encodeURIComponent(name)}/variables`,
+    ),
+  getField: (
+    id: number,
+    name: string,
+    params: { var: string; axis?: "x" | "y" | "z"; index?: number },
+  ) => {
+    const q = new URLSearchParams({
+      var: params.var,
+      axis: params.axis ?? "z",
+      index: String(params.index ?? 0),
+    }).toString();
+    return request<{
+      variable: string;
+      axis: string;
+      index: number;
+      shape: [number, number];
+      x: number[];
+      y: number[];
+      z: number[][];
+      vmin: number;
+      vmax: number;
+    }>(`/api/runs/${id}/outputs/${encodeURIComponent(name)}/field?${q}`);
+  },
   getStorage: (id: number) =>
     request<{
       total_bytes: number;

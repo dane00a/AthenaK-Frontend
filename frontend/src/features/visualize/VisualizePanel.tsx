@@ -4,6 +4,7 @@ import { useOutletContext } from "react-router-dom";
 
 import { api, type Run } from "../../lib/api";
 import type { ProjectContext } from "../projects/ProjectShell";
+import { HeatmapView } from "./HeatmapView";
 import { SeriesChart, type SeriesSource } from "./SeriesChart";
 
 export function VisualizePanel() {
@@ -55,7 +56,9 @@ export function VisualizePanel() {
     }
   }, [outputsQ.data, activeOutput]);
 
-  const isPlottable = (kind: string) => kind === "hst" || kind === "tab";
+  const isSeries = (kind: string) => kind === "hst" || kind === "tab";
+  const isField = (kind: string) => kind === "athdf" || kind === "hdf5" || kind === "h5";
+  const isPlottable = (kind: string) => isSeries(kind) || isField(kind);
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
@@ -146,11 +149,17 @@ export function VisualizePanel() {
             outputsQ.data?.find((o) => o.name === activeOutput)?.kind &&
             (() => {
               const kind = outputsQ.data!.find((o) => o.name === activeOutput)!.kind;
-              const sources: SeriesSource[] = [
-                { runId, name: activeOutput, kind },
-                ...compareIds.map((id) => ({ runId: id, name: activeOutput, kind })),
-              ];
-              return <SeriesChart sources={sources} />;
+              if (isField(kind)) {
+                return <HeatmapView runId={runId} name={activeOutput} />;
+              }
+              if (isSeries(kind)) {
+                const sources: SeriesSource[] = [
+                  { runId, name: activeOutput, kind },
+                  ...compareIds.map((id) => ({ runId: id, name: activeOutput, kind })),
+                ];
+                return <SeriesChart sources={sources} />;
+              }
+              return null;
             })()}
         </section>
       </div>

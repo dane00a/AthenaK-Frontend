@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import Run
-from ..services import outputs, runner
+from ..services import outputs, outputs_athdf, runner
 
 router = APIRouter(tags=["outputs"])
 
@@ -85,3 +85,77 @@ def read_run_series(run_id: int, name: str, db: Session = Depends(get_db)) -> Se
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"cannot parse .{kind} as series"
         )
     return SeriesOut(columns=series.columns, rows=series.rows)
+
+
+class FieldOut(BaseModel):
+    variable: str
+    axis: str
+    index: int
+    shape: tuple[int, int]
+    x: list[float]
+    y: list[float]
+    z: list[list[float]]
+    vmin: float
+    vmax: float
+
+
+class FieldVarsOut(BaseModel):
+    variables: list[str]
+
+
+@router.get("/runs/{run_id}/outputs/{name}/variables", response_model=FieldVarsOut)
+def list_field_variables(
+    run_id: int, name: str, db: Session = Depends(get_db)
+) -> FieldVarsOut:
+    run = db.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    path = _resolve(run, name)
+    kind = _classify(path)
+    if kind not in {"athdf", "hdf5", "h5"}:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"variables only available for HDF5 files, got .{kind}",
+        )
+    try:
+        return FieldVarsOut(variables=outputs_athdf.list_variables(path))
+    except OSError as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"failed to read: {e}") from e
+
+
+@router.get("/runs/{run_id}/outputs/{name}/field", response_model=FieldOut)
+def read_field(
+    run_id: int,
+    name: str,
+    var: str,
+    axis: str = "z",
+    index: int = 0,
+    db: Session = Depends(get_db),
+) -> FieldOut:
+    run = db.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    path = _resolve(run, name)
+    kind = _classify(path)
+    if kind not in {"athdf", "hdf5", "h5"}:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"field slices only available for HDF5 files, got .{kind}",
+        )
+    try:
+        field = outputs_athdf.read_field(path, variable=var, axis=axis, index=index)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    except OSError as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"failed to read: {e}") from e
+    return FieldOut(
+        variable=field.variable,
+        axis=field.axis,
+        index=field.index,
+        shape=field.shape,
+        x=field.x,
+        y=field.y,
+        z=field.z,
+        vmin=field.vmin,
+        vmax=field.vmax,
+    )

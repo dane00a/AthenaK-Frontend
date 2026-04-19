@@ -42,10 +42,23 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export type ProjectTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  physics_module: string;
+};
+
 export const api = {
   listProjects: () => request<Project[]>("/api/projects"),
   createProject: (body: { name: string; physics_module: string; athenak_ref?: string }) =>
     request<Project>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
+  listTemplates: () => request<ProjectTemplate[]>("/api/templates"),
+  createProjectFromTemplate: (template_id: string, name?: string) =>
+    request<Project>(`/api/templates/${template_id}/projects`, {
+      method: "POST",
+      body: JSON.stringify({ template_id, name }),
+    }),
   getProject: (id: number) => request<Project>(`/api/projects/${id}`),
   deleteProject: (id: number) =>
     fetch(`${API_BASE}/api/projects/${id}`, { method: "DELETE" }).then((r) => {

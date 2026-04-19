@@ -1,0 +1,47 @@
+id: sod
+name: Sod shock tube
+description: Classic 1D Riemann problem; left/right states across a discontinuity.
+physics_module: hydro
+wizard_state:
+  physics_module: hydro
+  initial_condition: shock_tube
+  emit_par_for_loop: true
+  call_prim_to_cons: true
+inputs:
+  - filename: sod.athinput
+    content: |
+      <comment>
+      problem = Sod shock tube
+
+      <job>
+      basename = sod
+
+      <mesh>
+      nghost = 2
+      nx1    = 256
+      x1min  = -0.5
+      x1max  = 0.5
+      ix1_bc = outflow
+      ox1_bc = outflow
+      nx2    = 1
+      nx3    = 1
+
+      <time>
+      integrator  = rk2
+      cfl_number  = 0.8
+      tlim        = 0.25
+
+      <hydro>
+      eos         = ideal
+      gamma       = 1.4
+      reconstruct = plm
+      rsolver     = llf
+
+      <output1>
+      file_type = hst
+      dt        = 0.01
+
+      <output2>
+      file_type = tab
+      dt        = 0.05
+      variable  = hydro_w

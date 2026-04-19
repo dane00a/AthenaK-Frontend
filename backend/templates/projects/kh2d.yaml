@@ -1,0 +1,51 @@
+id: kh2d
+name: Kelvin-Helmholtz 2D
+description: Shear-driven instability with a small perturbation; good test of diffusion.
+physics_module: hydro
+wizard_state:
+  physics_module: hydro
+  initial_condition: custom
+  emit_par_for_loop: true
+  call_prim_to_cons: true
+inputs:
+  - filename: kh.athinput
+    content: |
+      <comment>
+      problem = Kelvin-Helmholtz 2D
+
+      <job>
+      basename = kh
+
+      <mesh>
+      nghost = 2
+      nx1    = 256
+      x1min  = -0.5
+      x1max  = 0.5
+      ix1_bc = periodic
+      ox1_bc = periodic
+      nx2    = 256
+      x2min  = -0.5
+      x2max  = 0.5
+      ix2_bc = periodic
+      ox2_bc = periodic
+      nx3    = 1
+
+      <time>
+      integrator  = rk2
+      cfl_number  = 0.4
+      tlim        = 2.0
+
+      <hydro>
+      eos         = ideal
+      gamma       = 1.4
+      reconstruct = plm
+      rsolver     = hllc
+
+      <output1>
+      file_type = hst
+      dt        = 0.05
+
+      <output2>
+      file_type = bin
+      dt        = 0.1
+      variable  = hydro_w

@@ -32,7 +32,19 @@ app.add_middleware(
 )
 
 
-from .api import builds, health, inputs, outputs, problems, projects, runs, ws  # noqa: E402
+from .api import (  # noqa: E402
+    builds,
+    health,
+    inputs,
+    outputs,
+    problems,
+    projects,
+    runs,
+    ws,
+)
+from .api import (  # noqa: E402
+    templates as project_templates_api,
+)
 
 app.include_router(health.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
@@ -41,4 +53,5 @@ app.include_router(inputs.router, prefix="/api")
 app.include_router(builds.router, prefix="/api")
 app.include_router(runs.router, prefix="/api")
 app.include_router(outputs.router, prefix="/api")
+app.include_router(project_templates_api.router, prefix="/api")
 app.include_router(ws.router)

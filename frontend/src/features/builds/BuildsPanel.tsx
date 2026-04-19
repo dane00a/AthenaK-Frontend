@@ -44,7 +44,14 @@ export function BuildsPanel() {
     },
   });
 
+  const cancelMut = useMutation({
+    mutationFn: (id: number) => api.cancelBuild(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["builds", project.id] }),
+  });
+
   const active = buildsQ.data?.find((b) => b.id === activeId);
+  const activeStatus = liveStatus ?? active?.status;
+  const activeCancellable = activeStatus === "queued" || activeStatus === "running";
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
@@ -74,6 +81,15 @@ export function BuildsPanel() {
         </label>
         <div className="ml-auto flex items-center gap-2">
           {active && <StatusPill status={liveStatus ?? active.status} />}
+          {active && activeCancellable && (
+            <button
+              onClick={() => cancelMut.mutate(active.id)}
+              disabled={cancelMut.isPending}
+              className="rounded-md border border-red-500/40 px-2 py-0.5 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+            >
+              {cancelMut.isPending ? "Cancelling…" : "Cancel"}
+            </button>
+          )}
           {active?.binary_path && (
             <code className="text-xs text-foreground/60">{active.binary_path}</code>
           )}

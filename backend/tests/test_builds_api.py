@@ -13,7 +13,7 @@ def _fake_celery_infra(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Stop the eager Celery task from calling real Redis / CMake / subprocess."""
     monkeypatch.setattr(tasks, "_redis", SimpleNamespace(publish=lambda *_: None))
 
-    def fake_build(slug, problem_cpp, cmake_flags, log_path, publish=None):
+    def fake_build(slug, problem_cpp, cmake_flags, log_path, publish=None, build_id=None):
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text("[fake] configure\n[fake] build\n")
         binary = tmp_path / slug / "athena"
@@ -22,7 +22,7 @@ def _fake_celery_infra(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         binary.chmod(0o755)
         return builder.BuildResult(success=True, binary_path=binary, returncode=0)
 
-    def fake_run(binary_path, input_text, run_dir, log_path, publish=None):
+    def fake_run(binary_path, input_text, run_dir, log_path, publish=None, run_id=None):
         run_dir.mkdir(parents=True, exist_ok=True)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text("[fake] run\n")

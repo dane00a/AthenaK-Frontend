@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..config import settings
-from . import athenak_repo, workspace
+from . import athenak_repo, process_registry, workspace
 
 LogSink = Callable[[str], None]
 
@@ -27,6 +27,7 @@ class BuildResult:
     success: bool
     binary_path: Path | None
     returncode: int
+    cancelled: bool = False
 
 
 def _format_flags(flags: dict[str, str | bool]) -> list[str]:
@@ -39,7 +40,12 @@ def _format_flags(flags: dict[str, str | bool]) -> list[str]:
     return out
 
 
-def _stream(cmd: list[str], cwd: Path, sinks: Iterable[LogSink]) -> int:
+def _stream(
+    cmd: list[str],
+    cwd: Path,
+    sinks: Iterable[LogSink],
+    on_spawn: Callable[[subprocess.Popen[str]], None] | None = None,
+) -> int:
     proc = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -48,6 +54,8 @@ def _stream(cmd: list[str], cwd: Path, sinks: Iterable[LogSink]) -> int:
         bufsize=1,
         text=True,
     )
+    if on_spawn is not None:
+        on_spawn(proc)
     assert proc.stdout is not None
     for line in proc.stdout:
         for sink in sinks:
@@ -61,9 +69,14 @@ def build(
     cmake_flags: dict[str, str | bool],
     log_path: Path,
     publish: LogSink | None = None,
+    build_id: int | None = None,
 ) -> BuildResult:
     workspace.ensure_layout(slug)
     log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _register(proc: subprocess.Popen[str]) -> None:
+        if build_id is not None:
+            process_registry.register_build(build_id, proc)
 
     with log_path.open("a", encoding="utf-8") as log_fp:
 
@@ -93,9 +106,14 @@ def build(
                     str(workspace.build_dir(slug)),
                     *_format_flags(flags),
                 ]
-                rc = _stream(configure_cmd, workspace.project_dir(slug), sinks)
+                rc = _stream(configure_cmd, workspace.project_dir(slug), sinks, _register)
                 if rc != 0:
-                    return BuildResult(success=False, binary_path=None, returncode=rc)
+                    cancelled = build_id is not None and process_registry.was_build_cancelled(
+                        build_id
+                    )
+                    return BuildResult(
+                        success=False, binary_path=None, returncode=rc, cancelled=cancelled
+                    )
 
                 build_cmd = [
                     "cmake",
@@ -104,12 +122,19 @@ def build(
                     "-j",
                     str(settings.nproc),
                 ]
-                rc = _stream(build_cmd, workspace.project_dir(slug), sinks)
+                rc = _stream(build_cmd, workspace.project_dir(slug), sinks, _register)
                 if rc != 0:
-                    return BuildResult(success=False, binary_path=None, returncode=rc)
+                    cancelled = build_id is not None and process_registry.was_build_cancelled(
+                        build_id
+                    )
+                    return BuildResult(
+                        success=False, binary_path=None, returncode=rc, cancelled=cancelled
+                    )
             finally:
                 if staged.exists():
                     staged.unlink()
+                if build_id is not None:
+                    process_registry.unregister_build(build_id)
 
     # The athena binary lands under build/src/athena for current AthenaK;
     # fall back to a glob if upstream relocates it.

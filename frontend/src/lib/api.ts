@@ -80,6 +80,7 @@ export const api = {
     }),
   listBuilds: (id: number) => request<Build[]>(`/api/projects/${id}/builds`),
   getBuild: (id: number) => request<Build>(`/api/builds/${id}`),
+  cancelBuild: (id: number) => request<Build>(`/api/builds/${id}/cancel`, { method: "POST" }),
   createRun: (build_id: number, input_file_id: number) =>
     request<Run>(`/api/builds/${build_id}/runs`, {
       method: "POST",
@@ -87,6 +88,7 @@ export const api = {
     }),
   listRuns: (build_id: number) => request<Run[]>(`/api/builds/${build_id}/runs`),
   getRun: (id: number) => request<Run>(`/api/runs/${id}`),
+  cancelRun: (id: number) => request<Run>(`/api/runs/${id}/cancel`, { method: "POST" }),
   listOutputs: (id: number) =>
     request<{ name: string; size: number; kind: string }[]>(`/api/runs/${id}/outputs`),
   getSeries: (id: number, name: string) =>

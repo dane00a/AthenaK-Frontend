@@ -5,8 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Build, Project
+from ..models import Build, BuildStatus, Project
 from ..schemas import BuildCreate, BuildOut
+from ..services import process_registry
 from ..workers import tasks
 
 router = APIRouter(tags=["builds"])
@@ -51,4 +52,23 @@ def get_build(build_id: int, db: Session = Depends(get_db)) -> Build:
     build = db.get(Build, build_id)
     if build is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "build not found")
+    return build
+
+
+@router.post("/builds/{build_id}/cancel", response_model=BuildOut)
+def cancel_build(build_id: int, db: Session = Depends(get_db)) -> Build:
+    build = db.get(Build, build_id)
+    if build is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "build not found")
+    if build.status not in (BuildStatus.queued, BuildStatus.running):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"cannot cancel a build in state {build.status.value}"
+        )
+    terminated = process_registry.cancel_build(build_id)
+    if not terminated and build.status == BuildStatus.queued:
+        # Task hadn't started yet; mark cancelled directly so it never runs.
+        build.status = BuildStatus.cancelled
+        build.error = "cancelled before start"
+        db.commit()
+    db.refresh(build)
     return build

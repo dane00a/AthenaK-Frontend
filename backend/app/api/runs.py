@@ -5,8 +5,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Build, InputFile, Run
+from ..models import Build, InputFile, Run, RunStatus
 from ..schemas import RunCreate, RunOut
+from ..services import process_registry
 from ..workers import tasks
 
 router = APIRouter(tags=["runs"])
@@ -48,4 +49,22 @@ def get_run(run_id: int, db: Session = Depends(get_db)) -> Run:
     run = db.get(Run, run_id)
     if run is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    return run
+
+
+@router.post("/runs/{run_id}/cancel", response_model=RunOut)
+def cancel_run(run_id: int, db: Session = Depends(get_db)) -> Run:
+    run = db.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    if run.status not in (RunStatus.queued, RunStatus.running):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"cannot cancel a run in state {run.status.value}"
+        )
+    terminated = process_registry.cancel_run(run_id)
+    if not terminated and run.status == RunStatus.queued:
+        run.status = RunStatus.cancelled
+        run.error = "cancelled before start"
+        db.commit()
+    db.refresh(run)
     return run

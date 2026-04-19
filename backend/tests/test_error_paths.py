@@ -13,20 +13,16 @@ from app.workers import tasks
 def _fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Neutralise the Celery task side-effects for tests that enqueue builds."""
     monkeypatch.setattr(tasks, "_redis", SimpleNamespace(publish=lambda *_: None))
-    monkeypatch.setattr(
-        builder,
-        "build",
-        lambda slug, problem_cpp, cmake_flags, log_path, publish=None: builder.BuildResult(
+    def _fake_build(slug, problem_cpp, cmake_flags, log_path, publish=None, build_id=None):
+        return builder.BuildResult(
             success=True, binary_path=tmp_path / slug / "athena", returncode=0
-        ),
-    )
-    monkeypatch.setattr(
-        runner,
-        "run_simulation",
-        lambda binary_path, input_text, run_dir, log_path, publish=None: runner.RunResult(
-            exit_code=0, output_dir=run_dir, pid=1
-        ),
-    )
+        )
+
+    def _fake_run(binary_path, input_text, run_dir, log_path, publish=None, run_id=None):
+        return runner.RunResult(exit_code=0, output_dir=run_dir, pid=1)
+
+    monkeypatch.setattr(builder, "build", _fake_build)
+    monkeypatch.setattr(runner, "run_simulation", _fake_run)
 
 
 def test_project_validation_requires_name(client: TestClient) -> None:

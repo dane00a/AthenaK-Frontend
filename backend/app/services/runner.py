@@ -7,6 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import process_registry
+
 LogSink = Callable[[str], None]
 
 
@@ -15,6 +17,7 @@ class RunResult:
     exit_code: int
     output_dir: Path
     pid: int
+    cancelled: bool = False
 
 
 def run_simulation(
@@ -23,6 +26,7 @@ def run_simulation(
     run_dir: Path,
     log_path: Path,
     publish: LogSink | None = None,
+    run_id: int | None = None,
 ) -> RunResult:
     run_dir.mkdir(parents=True, exist_ok=True)
     input_path = run_dir / "input.athinput"
@@ -46,15 +50,22 @@ def run_simulation(
             bufsize=1,
             text=True,
         )
-        assert proc.stdout is not None
-        pid = proc.pid
-        for line in proc.stdout:
-            text = line.rstrip("\n")
-            for sink in sinks:
-                sink(text)
-        rc = proc.wait()
+        if run_id is not None:
+            process_registry.register_run(run_id, proc)
+        try:
+            assert proc.stdout is not None
+            pid = proc.pid
+            for line in proc.stdout:
+                text = line.rstrip("\n")
+                for sink in sinks:
+                    sink(text)
+            rc = proc.wait()
+        finally:
+            if run_id is not None:
+                process_registry.unregister_run(run_id)
 
-    return RunResult(exit_code=rc, output_dir=run_dir, pid=pid)
+    cancelled = run_id is not None and process_registry.was_run_cancelled(run_id)
+    return RunResult(exit_code=rc, output_dir=run_dir, pid=pid, cancelled=cancelled)
 
 
 def list_outputs(run_dir: Path) -> list[Path]:

@@ -58,6 +58,7 @@ def build_project(build_id: int) -> None:
                 cmake_flags=build.cmake_flags or {},
                 log_path=log_path,
                 publish=lambda line: _publish(channel, "stdout", line),
+                build_id=build_id,
             )
         except Exception as exc:  # noqa: BLE001
             build.status = BuildStatus.failed
@@ -72,6 +73,10 @@ def build_project(build_id: int) -> None:
             build.status = BuildStatus.success
             build.binary_path = str(result.binary_path)
             _publish_status(channel, "success")
+        elif result.cancelled:
+            build.status = BuildStatus.cancelled
+            build.error = "cancelled by user"
+            _publish_status(channel, "cancelled")
         else:
             build.status = BuildStatus.failed
             build.error = f"cmake exited with code {result.returncode}"
@@ -117,6 +122,7 @@ def run_simulation(run_id: int) -> None:
                 run_dir=run_dir,
                 log_path=log_path,
                 publish=lambda line: _publish(channel, "stdout", line),
+                run_id=run_id,
             )
         except Exception as exc:  # noqa: BLE001
             run.status = RunStatus.failed
@@ -129,6 +135,12 @@ def run_simulation(run_id: int) -> None:
         run.pid = result.pid
         run.exit_code = result.exit_code
         run.finished_at = datetime.now(UTC)
-        run.status = RunStatus.success if result.exit_code == 0 else RunStatus.failed
+        if result.cancelled:
+            run.status = RunStatus.cancelled
+            run.error = "cancelled by user"
+        elif result.exit_code == 0:
+            run.status = RunStatus.success
+        else:
+            run.status = RunStatus.failed
         db.commit()
         _publish_status(channel, run.status.value)

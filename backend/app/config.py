@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     build_jobs: int | None = None
     app_env: str = "dev"  # "dev" -> console logs, anything else -> JSON
 
+    # Auth — off by default. Set AUTH_ENABLED=true + ADMIN_PASSWORD_HASH
+    # (bcrypt) to turn on a single-user login gate.
+    auth_enabled: bool = False
+    admin_password_hash: str = ""
+    auth_secret: str = "dev-secret-change-me"
+    auth_cookie_name: str = "athenak_session"
+    auth_cookie_max_age_s: int = 86_400
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

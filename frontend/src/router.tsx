@@ -1,6 +1,7 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 
 import { AppShell } from "./components/layout/AppShell";
+import { LoginPage } from "./features/auth/LoginPage";
 import { ProjectList } from "./features/projects/ProjectList";
 import { ProjectShell } from "./features/projects/ProjectShell";
 import { StoragePanel } from "./features/projects/StoragePanel";
@@ -14,6 +15,7 @@ export const router = createBrowserRouter([
   {
     element: <AppShell />,
     children: [
+      { path: "/login", element: <LoginPage /> },
       { path: "/", element: <ProjectList /> },
       {
         path: "/projects/:projectId",

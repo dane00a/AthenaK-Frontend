@@ -22,6 +22,7 @@ export type Diagnostic = {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
   if (!res.ok) {
@@ -39,6 +40,23 @@ export type ProjectTemplate = {
 };
 
 export const api = {
+  authStatus: () =>
+    request<{ enabled: boolean; authenticated: boolean }>("/api/auth/status"),
+  authLogin: async (password: string): Promise<void> => {
+    const r = await fetch(`${API_BASE}/api/auth/login`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    if (!r.ok) throw new Error(`login failed: ${r.status}`);
+  },
+  authLogout: async (): Promise<void> => {
+    await fetch(`${API_BASE}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+  },
   listProjects: () => request<Project[]>("/api/projects"),
   createProject: (body: { name: string; physics_module: string; athenak_ref?: string }) =>
     request<Project>("/api/projects", { method: "POST", body: JSON.stringify(body) }),

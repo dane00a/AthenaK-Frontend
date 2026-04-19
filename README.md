@@ -6,13 +6,14 @@ A browser-based frontend for [AthenaK](https://github.com/IAS-Astrophysics/athen
 
 ## What it does
 
-- **Problem wizard → C++.** Pick a physics module, initial condition, and hooks; get a compliant `src/pgen/` file. Edit freely in Monaco.
-- **Input editor.** Structured form for `.athinput` blocks (`<mesh>`, `<time>`, `<hydro>`, …) with raw-text escape hatch.
+- **Problem wizard → C++.** Pick a physics module, initial condition, and hooks; get a compliant `src/pgen/` file. Edit freely in Monaco (with AthenaK-specific completions, hovers, and region folding).
+- **Input editor.** Structured form for `.athinput` blocks (`<mesh>`, `<time>`, `<hydro>`, …) with a raw-text Monaco pane for the escape hatch.
 - **Compile.** `cmake -DPROBLEM=user_problem …` with live build log (xterm.js).
 - **Run.** Launch the built binary; stream stdout; collect outputs.
 - **Visualize.** `.hst` / `.tab` → line plots (Plotly).
+- **Plug-and-play compute.** Local by default; **SSH** and **SSH+Slurm** (HPC) targets are pluggable per-project. Design: [`docs/HPC-SSH.md`](./docs/HPC-SSH.md).
 
-AthenaK's source tree is never modified. The user's problem file is copied into `src/pgen/` only for the duration of a build.
+AthenaK's source tree is never modified — your problem file is staged into `src/pgen/` only for the duration of a build and removed immediately after, whether the build happens locally or on a remote cluster.
 
 ## Quick start
 
@@ -28,7 +29,14 @@ Prerequisites: Python 3.11+, Node 20+, Docker (for the Redis container), a C++17
 
 ## Tech stack
 
-FastAPI + Celery + Redis · React 18 + Vite + TypeScript · Tailwind + shadcn/ui · Monaco · xterm.js · Plotly · SQLite (dev).
+FastAPI + Celery + Redis · React 18 + Vite + TypeScript · Tailwind + shadcn/ui · Monaco · xterm.js · Plotly · SQLite (dev) · paramiko (SSH, planned).
+
+## Where data lives
+
+- **Metadata** (projects, problem files, inputs, build/run rows): SQLite at `backend/athenak.db`.
+- **Bytes** (CMake artifacts, the `athena` binary, `.hst`/`.tab`/`.bin`/`.athdf` outputs, logs): under `$ATHENAK_CACHE_DIR` (default `~/.athenak-frontend/`) — or on the remote cluster for SSH-backed projects. Simulation outputs land in `$ATHENAK_CACHE_DIR/workspaces/<slug>/runs/<run_id>/` because AthenaK is launched with that directory as its `cwd`.
+
+See `CLAUDE.md §4a` for the full layout.
 
 ## Dev commands
 

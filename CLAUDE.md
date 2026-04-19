@@ -37,6 +37,7 @@ AthenaK-Frontend is a **non-invasive web layer on top of [AthenaK](https://githu
 - Sandboxing model is **trust / single-user local dev** — no Docker-per-build. Arbitrary C++ will be compiled and executed on the host.
 - GPU (CUDA/ROCm) is **opt-in build flags** toggled in the UI, never a source-tree modification. CPU is the default.
 - Scope is the **full feature set**: editor + build + run + visualize.
+- **Compute is pluggable.** Each project carries a `compute_kind` (`local` today; `ssh` and `ssh+slurm` planned) and a `compute_config` JSON. `services/builder.py`, `services/runner.py`, and `services/outputs.py` are to be refactored behind a `ComputeTarget` ABC so the local path is just the first implementation. **Full design and roadmap: [`docs/HPC-SSH.md`](./docs/HPC-SSH.md).** Do not add HPC features without reading it.
 
 ## 3. Repository layout
 
@@ -75,9 +76,14 @@ AthenaK-Frontend/
 │   │   │   ├── outputs.py
 │   │   │   └── ws.py                # WebSocket endpoints for log streams
 │   │   ├── services/                # business logic (no FastAPI deps)
+│   │   │   ├── compute/             # pluggable compute targets (local, ssh, ssh+slurm)
+│   │   │   │   ├── base.py          # ComputeTarget / Transport / Executor ABCs
+│   │   │   │   ├── local.py         # the current subprocess-based flow
+│   │   │   │   ├── ssh.py           # paramiko-based (planned, see docs/HPC-SSH.md)
+│   │   │   │   └── ssh_slurm.py     # sbatch variant (planned)
 │   │   │   ├── athenak_repo.py      # clone/update upstream; locate pgen dir
 │   │   │   ├── workspace.py         # per-project workspace layout
-│   │   │   ├── builder.py           # cmake + cmake --build wrapper
+│   │   │   ├── builder.py           # cmake + cmake --build wrapper (uses ComputeTarget)
 │   │   │   ├── runner.py            # Popen + log tailing
 │   │   │   ├── templates.py         # Jinja2 C++ generator
 │   │   │   ├── athinput.py          # parse/serialize .athinput files
@@ -225,36 +231,66 @@ without gaps. The on-disk log is the source of truth; Redis is the fan-out.
 - Output files accumulate per run; prune `workspaces/<slug>/runs/` by hand
   for now.
 
+## 4b. Compute targets (plug-and-play: local, SSH, SSH+Slurm)
+
+**See [`docs/HPC-SSH.md`](./docs/HPC-SSH.md) for the full design, roadmap (J0–J6), and open questions. Summary only here.**
+
+Every project pins a **compute target**:
+
+| Kind | What it is | Status |
+|---|---|---|
+| `local` | `subprocess.Popen` on the backend host. Current code path. | **Shipped** — the entire existing flow is this kind. |
+| `ssh` | Paramiko-based. Stage files over SFTP, run `cmake`/`make`/`athena` via `exec_command` with a configurable `shell_prelude` (typically `module load …`), stream stdout back line-by-line. | **Planned** (J2–J3 in the roadmap). |
+| `ssh+slurm` | Extends `ssh` by wrapping each command in an `sbatch --wait` job; tails the Slurm `--output=` log via SFTP for live streaming. | **Planned** (J6). |
+
+The `Project` model will gain two columns (Alembic migration `0002_compute_target.py` planned):
+
+- `compute_kind: str` — one of `local`, `ssh`, `ssh+slurm`. Default `local`.
+- `compute_config: JSON` — discriminated by `compute_kind`. For `ssh`: `host`, `port`, `user`, `key_path`, `remote_cache_dir`, `shell_prelude: list[str]`. For `ssh+slurm`: adds `scheduler: {kind, partition, account, time, gres, …}`.
+
+`services/{builder,runner,outputs}.py` will be refactored behind a `ComputeTarget` ABC with a `Transport` (file ops) + `Executor` (command streaming) split. The local path becomes the first `ComputeTarget` implementation. The UI and REST surface don't change — log streaming over WebSockets keeps the same replay-then-subscribe contract; output download endpoints stream via SFTP for remote runs.
+
+Credentials policy (same doc, §6): keys on disk, paths in DB, passphrases held in an in-memory 1h-TTL keyring after one-time `POST /api/compute/{project_id}/unlock`. A `POST /api/compute/{project_id}/probe` endpoint returns a connection check (`echo ok && uname -a`) for the "Test connection" button in the New Project dialog.
+
+**Do not touch any SSH-related code paths without re-reading `docs/HPC-SSH.md` first.** The document locks the abstraction so future work (Slurm, Kerberos, bastion/ProxyJump) slots in without churning the existing services.
+
 ## 5. Backend architecture
 
 ### 5.1 Data model
 
 ```
-Project(id, name, slug UNIQUE, physics_module, athenak_ref, created_at, updated_at)
+Project(id, name, slug UNIQUE, physics_module, athenak_ref,
+        compute_kind, compute_config JSON,          # see §4b
+        created_at, updated_at)
 ProblemFile(id, project_id FK, filename, content TEXT, updated_at)
 InputFile(id, project_id FK, filename, content TEXT, updated_at)
 Build(id, project_id FK, status, cmake_flags JSON, log_path, binary_path, started_at, finished_at, error TEXT)
 Run(id, build_id FK, input_file_id FK, status, pid, log_path, output_dir, started_at, finished_at, exit_code, error TEXT)
 ```
 
-`status` is a string enum: `queued | running | success | failed | cancelled`.
+`status` is a string enum: `queued | running | success | failed | cancelled`. `binary_path` and `output_dir` are **absolute paths in whatever filesystem the project's compute target owns** — local for `local`, remote for `ssh`.
 
 ### 5.2 Build pipeline (`workers/tasks.build_project`)
 
-1. Mark `Build.status = running`; open `log_path` for append.
-2. Under upstream file lock: write `user_problem.cpp` into `upstream/athenak/src/pgen/`.
-3. `cmake -S upstream/athenak -B <workspace>/build -DPROBLEM=user_problem -DCMAKE_BUILD_TYPE=Release` + any opt-in flags (e.g. `-DAthena_ENABLE_MPI=ON`, `-DKokkos_ENABLE_CUDA=ON`).
-4. `cmake --build <workspace>/build -j$(nproc)`.
-5. Every stdout/stderr line is appended to `log_path` AND published to Redis channel `build:<id>`.
-6. On success, record `binary_path` = `<workspace>/build/src/athena` (verify the exact path against the upstream CMake output).
-7. Always delete the staged `user_problem.cpp` and release the lock.
+The task resolves the project's `ComputeTarget` first; every filesystem and process operation below goes through it, so the same prose describes the local and SSH flows.
+
+1. `compute = get_compute(project)`; `compute.ensure_bootstrapped()` (no-op for `local`; clones AthenaK on first use for `ssh`).
+2. Mark `Build.status = running`; open the **local** `log_path` for append.
+3. Under the upstream lock (filelock for `local`, remote `flock` for `ssh`), `compute.transport.upload_text(pgen_dir/"user_problem.cpp", problem.content)`.
+4. `compute.executor.run_streaming(["cmake", "-S", upstream, "-B", build_dir, "-DPROBLEM=user_problem", …], cwd=project_dir, shell_prelude=config.shell_prelude)` for configure.
+5. Same for `cmake --build build_dir -j$(nproc)`.
+6. Each `on_line` callback appends to the local `log_path` **and** publishes to Redis `build:<id>`.
+7. On success, record `binary_path` = `build_dir/src/athena` (verify against upstream). For `ssh`, this is a remote path, used later by the runner on the same compute target.
+8. **Always** unstage `user_problem.cpp` and release the lock (the invariant from §4 is identical on both sides).
 
 ### 5.3 Run pipeline (`workers/tasks.run_simulation`)
 
-1. Create `runs/<run-id>/`; write the chosen `.athinput` content there.
-2. `Popen([binary_path, "-i", "input.athinput"], cwd=runs/<run-id>, stdout=PIPE, stderr=STDOUT)`.
-3. Reader thread tails the pipe, writes to `log_path`, publishes to Redis `run:<id>`.
-4. On exit, walk the run dir and register `.hst`, `.tab`, `.bin`, `.athdf` outputs.
+1. `compute = get_compute(project)`.
+2. `compute.transport.upload_text(runs_dir/run_id/"input.athinput", inp.content)`.
+3. `compute.executor.run_streaming([binary_path, "-i", "input.athinput"], cwd=runs_dir/run_id)`; each line gets written to the local log file and published to Redis `run:<id>`.
+4. On exit, `compute.transport.listdir(runs_dir/run_id)` enumerates produced outputs (`.hst`, `.tab`, `.bin`, `.athdf`, `.rst`).
+
+The routes in §5.5 don't change — `/api/runs/:id/outputs*` just calls `compute.transport.*` under the hood, streaming via SFTP for `ssh`.
 
 ### 5.4 WebSocket log streams
 
@@ -281,6 +317,11 @@ GET    /api/runs/{id}
 GET    /api/runs/{id}/outputs
 GET    /api/runs/{id}/outputs/{name}           # streamed file download
 GET    /api/runs/{id}/outputs/{name}/series    # parsed .hst/.tab → JSON
+
+# Compute (planned — see docs/HPC-SSH.md)
+POST   /api/compute/test                       # dry-run a compute_config without saving
+POST   /api/compute/{project_id}/probe         # "echo ok && uname -a" sanity check
+POST   /api/compute/{project_id}/unlock        # body = {passphrase}; caches decrypted key 1h
 ```
 
 ### 5.6 C++ template generator
@@ -447,8 +488,13 @@ BUILD_JOBS=                 # blank = nproc
 - **Editing the wizard schema.** `schemas/pgen-wizard.ts` (frontend) and `backend/app/services/templates.py` + `backend/templates/user_problem.cpp.j2` must stay in sync. When you add a wizard field, update all three in the same change.
 - **The AthenaK source tree is sacred.** Never commit it as a vendored copy. Never edit it from this codebase's tests. Only `services/builder.py` touches it, and only transiently.
 - **GPU.** We expose `Kokkos_ENABLE_CUDA` / `Kokkos_ENABLE_HIP` as opt-in cmake flags only. Don't assume the host has a GPU; default is CPU.
+- **Compute target is per-project and authoritative.** Never hard-code `Popen` / `Path` into a new service — call the project's `ComputeTarget`. A function that bypasses `compute` is automatically SSH-broken even if it works locally.
+- **Never log passphrases or private keys.** The `/api/compute/.../unlock` payload must be excluded from the access-log formatter; the in-memory keyring never serializes.
+- **Remote paths vs. local paths.** After the refactor, `Build.binary_path` and `Run.output_dir` are strings whose filesystem is owned by the project's compute target. Do not `pathlib.Path(...).exists()` them directly; use `compute.transport.exists`.
 
 ## 10. Milestone roadmap
+
+Local pipeline (shipped):
 
 | # | Goal | Key files |
 |---|---|---|
@@ -461,6 +507,18 @@ BUILD_JOBS=                 # blank = nproc
 | M6 | Build/Run UI with xterm.js | `frontend/src/features/{builds,runs}` |
 | M7 | Visualization of `.hst`/`.tab` | `frontend/src/features/visualize`, `services/outputs.py` |
 
+HPC / plug-n-play compute (planned — see [`docs/HPC-SSH.md`](./docs/HPC-SSH.md)):
+
+| # | Goal | Key files |
+|---|---|---|
+| J0 | Introduce `ComputeTarget` ABC + `LocalCompute`; refactor services to use it (no behavioural change). | `backend/app/services/compute/{base,local}.py`, `services/{builder,runner,outputs}.py` |
+| J1 | `compute_kind` + `compute_config` on `Project`; Alembic migration; API accepts them. | `backend/app/models/project.py`, `alembic/versions/0002_compute_target.py`, `api/projects.py` |
+| J2 | `SshCompute` (paramiko) + `/api/compute/{id}/probe` + `/unlock`. Fake-SSH tests. | `services/compute/ssh.py`, `api/compute.py`, `tests/test_compute_ssh.py` |
+| J3 | Remote bootstrap + remote upstream lock. End-to-end SSH build/run. | `services/compute/ssh.py`, `services/athenak_repo.py` (extracted helpers) |
+| J4 | Frontend: compute field group in New Project dialog; compute chip in project header; passphrase banner. | `frontend/src/features/projects/NewProjectDialog.tsx`, new `features/compute/` |
+| J5 | Output streaming via SFTP + optional `?mirror=1` local cache. | `api/outputs.py`, `services/compute/ssh.py` |
+| J6 | `SshSlurmCompute` (sbatch + `--output=` tailing). | `services/compute/ssh_slurm.py` |
+
 ## 11. Verification (end-to-end acceptance)
 
 1. `./scripts/bootstrap_athenak.sh` clones AthenaK successfully into `$ATHENAK_CACHE_DIR/upstream/athenak`.
@@ -472,6 +530,8 @@ BUILD_JOBS=                 # blank = nproc
 7. Visualize tab → history plot renders with column picker.
 8. `make test` passes; `make lint` passes.
 
-## 12. Reference: the approved implementation plan
+## 12. Reference
 
-The long-form design doc is at `/root/.claude/plans/analyze-this-repository-and-squishy-yao.md`. That file is the source of truth for architectural decisions; this CLAUDE.md is the everyday operating guide. Keep them consistent when making significant changes.
+- The long-form original implementation plan is at `/root/.claude/plans/analyze-this-repository-and-squishy-yao.md` (source of truth for the initial architecture).
+- **HPC / SSH plug-and-play design lives at [`docs/HPC-SSH.md`](./docs/HPC-SSH.md)** — that's the source of truth for the compute abstraction and the J0–J6 roadmap. Read it before touching anything under `services/compute/` or `api/compute.py`.
+- This CLAUDE.md is the everyday operating guide. Keep all three consistent when making significant changes.

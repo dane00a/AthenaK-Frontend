@@ -22,6 +22,7 @@ class BuildOut(BaseModel):
     log_path: str | None
     binary_path: str | None
     error: str | None
+    diagnostics: list[dict[str, Any]] = []
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime

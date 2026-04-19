@@ -15,7 +15,7 @@ import redis
 from .. import db as _db
 from ..config import settings
 from ..models import Build, BuildStatus, InputFile, ProblemFile, Run, RunStatus
-from ..services import builder, runner, workspace
+from ..services import builder, diagnostics, runner, workspace
 from .celery_app import celery
 
 _redis = redis.Redis.from_url(settings.redis_url)
@@ -69,6 +69,10 @@ def build_project(build_id: int) -> None:
             raise
 
         build.finished_at = datetime.now(UTC)
+        try:
+            build.diagnostics = diagnostics.parse_log(log_path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            build.diagnostics = []
         if result.success and result.binary_path:
             build.status = BuildStatus.success
             build.binary_path = str(result.binary_path)

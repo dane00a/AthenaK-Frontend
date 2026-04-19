@@ -18,11 +18,20 @@ export type InputFile = {
   content: string;
   updated_at: string;
 };
+export type Diagnostic = {
+  file: string;
+  line: number;
+  column: number;
+  severity: "error" | "warning" | "info";
+  message: string;
+};
+
 export type Build = {
   id: number;
   status: "queued" | "running" | "success" | "failed" | "cancelled";
   binary_path: string | null;
   error: string | null;
+  diagnostics: Diagnostic[];
 };
 export type Run = {
   id: number;

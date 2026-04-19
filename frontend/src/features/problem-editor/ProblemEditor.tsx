@@ -7,6 +7,7 @@ import { EditorStatusBar } from "../../components/EditorStatusBar";
 import { EditorToolbar } from "../../components/EditorToolbar";
 import { api } from "../../lib/api";
 import { registerAthenakCpp } from "../../lib/monaco/athenak-cpp";
+import { applyDiagnostics, clearDiagnostics } from "../../lib/monaco/markers";
 import { useEditorPrefs } from "../../lib/monaco/useEditorPrefs";
 import { DEFAULT_WIZARD, type WizardState } from "../../schemas/pgen-wizard";
 import type { ProjectContext } from "../projects/ProjectShell";
@@ -23,6 +24,15 @@ export function ProblemEditor() {
     queryKey: ["problem", project.id],
     queryFn: () => api.getProblem(project.id),
   });
+
+  const buildsQ = useQuery({
+    queryKey: ["builds", project.id],
+    queryFn: () => api.listBuilds(project.id),
+    refetchInterval: 5_000,
+  });
+  const latestBuild = buildsQ.data?.[0];
+  const editorRef = useRef<import("monaco-editor").editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof import("monaco-editor") | null>(null);
 
   const [wizard, setWizard] = useState<WizardState>({
     ...DEFAULT_WIZARD,
@@ -63,6 +73,8 @@ export function ProblemEditor() {
   });
 
   const handleMount: OnMount = useCallback((editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco as unknown as typeof import("monaco-editor");
     const sub = registerAthenakCpp(monaco);
     editor.addAction({
       id: "athenak.save",
@@ -89,6 +101,19 @@ export function ProblemEditor() {
     );
     editor.onDidDispose(() => sub.dispose());
   }, []);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+    const model = editor.getModel();
+    if (!model) return;
+    if (!latestBuild) {
+      clearDiagnostics(monaco, model);
+      return;
+    }
+    applyDiagnostics(monaco, model, latestBuild.diagnostics, "user_problem.cpp");
+  }, [latestBuild]);
 
   const regions = useMemo(
     () =>

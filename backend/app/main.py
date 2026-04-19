@@ -34,9 +34,12 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-from .api import inputs, problems, projects, ws  # noqa: E402
+from .api import builds, inputs, outputs, problems, projects, runs, ws  # noqa: E402
 
 app.include_router(projects.router, prefix="/api")
 app.include_router(problems.router, prefix="/api")
 app.include_router(inputs.router, prefix="/api")
+app.include_router(builds.router, prefix="/api")
+app.include_router(runs.router, prefix="/api")
+app.include_router(outputs.router, prefix="/api")
 app.include_router(ws.router)

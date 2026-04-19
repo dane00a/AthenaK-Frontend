@@ -12,8 +12,8 @@ from pathlib import Path
 
 import redis
 
+from .. import db as _db
 from ..config import settings
-from ..db import SessionLocal
 from ..models import Build, BuildStatus, InputFile, ProblemFile, Run, RunStatus
 from ..services import builder, runner, workspace
 from .celery_app import celery
@@ -31,7 +31,7 @@ def _publish_status(channel: str, status: str) -> None:
 
 @celery.task(name="build_project")
 def build_project(build_id: int) -> None:
-    with SessionLocal() as db:
+    with _db.SessionLocal() as db:
         build = db.get(Build, build_id)
         if build is None:
             return
@@ -81,7 +81,7 @@ def build_project(build_id: int) -> None:
 
 @celery.task(name="run_simulation")
 def run_simulation(run_id: int) -> None:
-    with SessionLocal() as db:
+    with _db.SessionLocal() as db:
         run = db.get(Run, run_id)
         if run is None:
             return

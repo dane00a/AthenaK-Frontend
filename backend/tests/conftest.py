@@ -11,6 +11,9 @@ from sqlalchemy.pool import StaticPool
 from app import db as db_module
 from app.db import Base, get_db
 from app.main import app
+from app.workers.celery_app import celery as _celery
+
+_celery.conf.update(task_always_eager=True, task_eager_propagates=True)
 
 
 @pytest.fixture

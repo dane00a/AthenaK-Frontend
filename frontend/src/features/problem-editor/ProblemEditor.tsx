@@ -11,6 +11,7 @@ import { applyDiagnostics, clearDiagnostics } from "../../lib/monaco/markers";
 import { useEditorPrefs } from "../../lib/monaco/useEditorPrefs";
 import { DEFAULT_WIZARD, type WizardState } from "../../schemas/pgen-wizard";
 import type { ProjectContext } from "../projects/ProjectShell";
+import { RegenPreview } from "./RegenPreview";
 import { WizardForm } from "./WizardForm";
 
 const USER_REGION_RE = /^\s*\/\/\s*>>>\s*user:([\w.-]+)/;
@@ -55,7 +56,14 @@ export function ProblemEditor() {
       setContent(p.content);
       setDirty(false);
       qc.setQueryData(["problem", project.id], p);
+      setPreview(null);
     },
+  });
+
+  const [preview, setPreview] = useState<{ base: string; next: string } | null>(null);
+  const previewMut = useMutation({
+    mutationFn: () => api.previewFromWizard(project.id, wizard),
+    onSuccess: (p) => setPreview({ base: p.base_content, next: p.content }),
   });
 
   const save = useMutation({
@@ -134,10 +142,19 @@ export function ProblemEditor() {
         <WizardForm
           value={wizard}
           onChange={setWizard}
-          onGenerate={() => generate.mutate()}
-          generating={generate.isPending}
+          onGenerate={() => previewMut.mutate()}
+          generating={previewMut.isPending || generate.isPending}
         />
       </aside>
+
+      <RegenPreview
+        open={preview !== null}
+        base={preview?.base ?? ""}
+        next={preview?.next ?? ""}
+        onApply={() => generate.mutate()}
+        onCancel={() => setPreview(null)}
+        applying={generate.isPending}
+      />
 
       <section className="flex h-full flex-col">
         <EditorToolbar

@@ -86,6 +86,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify(params),
     }),
+  previewFromWizard: (id: number, params: Record<string, unknown>) =>
+    request<{ content: string; base_content: string }>(
+      `/api/projects/${id}/problem/from-wizard/preview`,
+      { method: "POST", body: JSON.stringify(params) },
+    ),
   listInputs: (id: number) => request<InputFile[]>(`/api/projects/${id}/inputs`),
   createInput: (id: number, body: { filename: string; content: string }) =>
     request<InputFile>(`/api/projects/${id}/inputs`, {

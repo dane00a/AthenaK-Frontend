@@ -85,6 +85,14 @@ export function InputEditor() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["inputs", project.id] }),
   });
 
+  const deleteMut = useMutation({
+    mutationFn: (inputId: number) => api.deleteInput(inputId),
+    onSuccess: (_d, inputId) => {
+      qc.invalidateQueries({ queryKey: ["inputs", project.id] });
+      if (inputId === activeId) setActiveId(null);
+    },
+  });
+
   const saveRef = useRef(saveMut.mutate);
   useEffect(() => {
     saveRef.current = saveMut.mutate;
@@ -119,7 +127,7 @@ export function InputEditor() {
         </div>
         <ul className="overflow-y-auto">
           {listQ.data?.map((i) => (
-            <li key={i.id}>
+            <li key={i.id} className="group relative">
               <button
                 onClick={() => setActiveId(i.id)}
                 onDoubleClick={() => {
@@ -127,7 +135,7 @@ export function InputEditor() {
                   if (next && next.trim() && next !== i.filename) renameMut.mutate(next.trim());
                 }}
                 className={clsx(
-                  "block w-full border-l-2 px-3 py-2 text-left text-sm",
+                  "block w-full border-l-2 px-3 py-2 pr-10 text-left text-sm",
                   i.id === activeId
                     ? "border-accent bg-muted/40"
                     : "border-transparent hover:bg-muted/30",
@@ -135,6 +143,17 @@ export function InputEditor() {
                 title="Double-click to rename"
               >
                 {i.filename}
+              </button>
+              <button
+                onClick={() => {
+                  if (window.confirm(`Delete input file ${i.filename}?`))
+                    deleteMut.mutate(i.id);
+                }}
+                aria-label={`Delete ${i.filename}`}
+                title="Delete"
+                className="absolute right-2 top-1.5 rounded px-1.5 py-0.5 text-xs text-foreground/50 opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100"
+              >
+                ✕
               </button>
             </li>
           ))}

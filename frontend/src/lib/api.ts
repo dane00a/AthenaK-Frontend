@@ -109,6 +109,13 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }),
+  deleteInput: (input_id: number) =>
+    fetch(`${API_BASE}/api/inputs/${input_id}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).then((r) => {
+      if (!r.ok && r.status !== 204) throw new Error(`${r.status}`);
+    }),
   createBuild: (id: number, cmake_flags: Record<string, unknown>) =>
     request<Build>(`/api/projects/${id}/builds`, {
       method: "POST",

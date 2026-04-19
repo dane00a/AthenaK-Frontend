@@ -550,4 +550,5 @@ HPC / plug-n-play compute (planned — see [`docs/HPC-SSH.md`](./docs/HPC-SSH.md
 
 - The long-form original implementation plan is at `/root/.claude/plans/analyze-this-repository-and-squishy-yao.md` (source of truth for the initial architecture).
 - **HPC / SSH plug-and-play design lives at [`docs/HPC-SSH.md`](./docs/HPC-SSH.md)** — that's the source of truth for the compute abstraction and the J0–J6 roadmap. Read it before touching anything under `services/compute/` or `api/compute.py`.
-- This CLAUDE.md is the everyday operating guide. Keep all three consistent when making significant changes.
+- **Post-HPC enhancement roadmap lives at [`docs/ROADMAP.md`](./docs/ROADMAP.md)** — 15 short cards (K0–K14) for improvements like cancellation, compiler diagnostics, retention/cleanup, project templates, auth, `.athdf` viewer, etc. Each card is self-contained and independent; pick by value-to-effort.
+- This CLAUDE.md is the everyday operating guide. Keep all four consistent when making significant changes.

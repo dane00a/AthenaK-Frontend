@@ -10,8 +10,14 @@ export type Project = {
   updated_at: string;
 };
 
-export type ProblemFile = { id: number; filename: string; content: string };
-export type InputFile = { id: number; filename: string; content: string };
+export type ProblemFile = { id: number; filename: string; content: string; updated_at: string };
+export type InputFile = {
+  id: number;
+  project_id: number;
+  filename: string;
+  content: string;
+  updated_at: string;
+};
 export type Build = {
   id: number;
   status: "queued" | "running" | "success" | "failed" | "cancelled";

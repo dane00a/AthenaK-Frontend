@@ -117,4 +117,20 @@ export const api = {
     request<{ columns: string[]; rows: number[][] }>(
       `/api/runs/${id}/outputs/${encodeURIComponent(name)}/series`,
     ),
+  getStorage: (id: number) =>
+    request<{
+      total_bytes: number;
+      build_bytes: number;
+      logs_bytes: number;
+      run_bytes: { run_id: number; bytes: number }[];
+    }>(`/api/projects/${id}/storage`),
+  setRetention: (id: number, body: { kind: "never" | "keep_last_n"; n?: number }) =>
+    request<{ kind: string; n?: number }>(`/api/projects/${id}/retention`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  purgeRun: (id: number) =>
+    request<{ run_id: number; purged: boolean }>(`/api/runs/${id}/purge`, {
+      method: "DELETE",
+    }),
 };

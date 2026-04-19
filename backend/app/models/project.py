@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import JSON, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -16,6 +16,9 @@ class Project(Base):
     slug: Mapped[str] = mapped_column(String(200), unique=True, nullable=False, index=True)
     physics_module: Mapped[str] = mapped_column(String(32), default="hydro", nullable=False)
     athenak_ref: Mapped[str] = mapped_column(String(200), default="main", nullable=False)
+    retention_policy: Mapped[dict] = mapped_column(
+        JSON, default=lambda: {"kind": "never"}, nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

@@ -43,6 +43,9 @@ from .api import (  # noqa: E402
     ws,
 )
 from .api import (  # noqa: E402
+    storage as storage_api,
+)
+from .api import (  # noqa: E402
     templates as project_templates_api,
 )
 
@@ -53,5 +56,6 @@ app.include_router(inputs.router, prefix="/api")
 app.include_router(builds.router, prefix="/api")
 app.include_router(runs.router, prefix="/api")
 app.include_router(outputs.router, prefix="/api")
+app.include_router(storage_api.router, prefix="/api")
 app.include_router(project_templates_api.router, prefix="/api")
 app.include_router(ws.router)

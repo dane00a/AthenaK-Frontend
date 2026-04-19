@@ -10,6 +10,7 @@ const TABS = [
   { to: "build", label: "Build" },
   { to: "runs", label: "Runs" },
   { to: "visualize", label: "Visualize" },
+  { to: "storage", label: "Storage" },
 ] as const;
 
 export type ProjectContext = { project: Project };

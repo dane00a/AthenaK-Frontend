@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AppShell } from "./components/layout/AppShell";
 import { ProjectList } from "./features/projects/ProjectList";
 import { ProjectShell } from "./features/projects/ProjectShell";
+import { StoragePanel } from "./features/projects/StoragePanel";
 import { ProblemEditor } from "./features/problem-editor/ProblemEditor";
 import { InputEditor } from "./features/input-editor/InputEditor";
 import { BuildsPanel } from "./features/builds/BuildsPanel";
@@ -24,6 +25,7 @@ export const router = createBrowserRouter([
           { path: "build", element: <BuildsPanel /> },
           { path: "runs", element: <RunsPanel /> },
           { path: "visualize", element: <VisualizePanel /> },
+          { path: "storage", element: <StoragePanel /> },
         ],
       },
     ],

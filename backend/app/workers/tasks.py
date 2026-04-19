@@ -15,7 +15,7 @@ import redis
 from .. import db as _db
 from ..config import settings
 from ..models import Build, BuildStatus, InputFile, ProblemFile, Run, RunStatus
-from ..services import builder, diagnostics, runner, workspace
+from ..services import builder, diagnostics, runner, storage, workspace
 from .celery_app import celery
 
 _redis = redis.Redis.from_url(settings.redis_url)
@@ -148,3 +148,8 @@ def run_simulation(run_id: int) -> None:
             run.status = RunStatus.failed
         db.commit()
         _publish_status(channel, run.status.value)
+
+        # Honour retention policy after every run (successful or not).
+        policy = project.retention_policy or {}
+        if policy.get("kind") == "keep_last_n":
+            storage.apply_retention(project.slug, policy, protect_run_id=run_id)

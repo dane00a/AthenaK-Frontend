@@ -11,7 +11,7 @@ A browser-based frontend for [AthenaK](https://github.com/IAS-Astrophysics/athen
 - **Compile.** `cmake -DPROBLEM=user_problem …` with live build log (xterm.js).
 - **Run.** Launch the built binary; stream stdout; collect outputs.
 - **Visualize.** `.hst` / `.tab` → line plots (Plotly).
-- **Plug-and-play compute.** Local by default; **SSH** and **SSH+Slurm** (HPC) targets are pluggable per-project. Design: [`docs/HPC-SSH.md`](./docs/HPC-SSH.md).
+- **Plug-and-play compute.** Local by default. **SSH** and — independently — **Slurm** are opt-in per-project along two orthogonal axes (Transport × Scheduler). You can SSH into a cluster and run commands directly (no Slurm required), or add Slurm on top to queue simulations while keeping builds fast on the login node. Design: [`docs/HPC-SSH.md`](./docs/HPC-SSH.md).
 
 AthenaK's source tree is never modified — your problem file is staged into `src/pgen/` only for the duration of a build and removed immediately after, whether the build happens locally or on a remote cluster.
 

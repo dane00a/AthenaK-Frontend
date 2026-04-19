@@ -37,7 +37,7 @@ AthenaK-Frontend is a **non-invasive web layer on top of [AthenaK](https://githu
 - Sandboxing model is **trust / single-user local dev** — no Docker-per-build. Arbitrary C++ will be compiled and executed on the host.
 - GPU (CUDA/ROCm) is **opt-in build flags** toggled in the UI, never a source-tree modification. CPU is the default.
 - Scope is the **full feature set**: editor + build + run + visualize.
-- **Compute is pluggable.** Each project carries a `compute_kind` (`local` today; `ssh` and `ssh+slurm` planned) and a `compute_config` JSON. `services/builder.py`, `services/runner.py`, and `services/outputs.py` are to be refactored behind a `ComputeTarget` ABC so the local path is just the first implementation. **Full design and roadmap: [`docs/HPC-SSH.md`](./docs/HPC-SSH.md).** Do not add HPC features without reading it.
+- **Compute is pluggable along two orthogonal axes: Transport and Scheduler.** Each project carries a `compute_config` JSON with nested `transport` (`local` today; `ssh` planned) and `scheduler` (`none` today; `slurm` planned) blocks, plus a `scheduler_scope` list defaulting to `["run"]`. **SSH and Slurm are independent opt-ins; Slurm is never required for HPC use** — a user who SSHs into a login node and runs commands directly is a first-class configuration. `services/builder.py`, `services/runner.py`, and `services/outputs.py` are to be refactored behind a `ComputeTarget` ABC (`Transport` + `Scheduler`) so the local path is just the first implementation. **Full design and roadmap: [`docs/HPC-SSH.md`](./docs/HPC-SSH.md).** Do not add HPC features without reading it.
 
 ## 3. Repository layout
 
@@ -76,11 +76,11 @@ AthenaK-Frontend/
 │   │   │   ├── outputs.py
 │   │   │   └── ws.py                # WebSocket endpoints for log streams
 │   │   ├── services/                # business logic (no FastAPI deps)
-│   │   │   ├── compute/             # pluggable compute targets (local, ssh, ssh+slurm)
-│   │   │   │   ├── base.py          # ComputeTarget / Transport / Executor ABCs
-│   │   │   │   ├── local.py         # the current subprocess-based flow
-│   │   │   │   ├── ssh.py           # paramiko-based (planned, see docs/HPC-SSH.md)
-│   │   │   │   └── ssh_slurm.py     # sbatch variant (planned)
+│   │   │   ├── compute/             # pluggable Transport × Scheduler (see docs/HPC-SSH.md)
+│   │   │   │   ├── base.py          # Transport / Scheduler / ComputeTarget ABCs
+│   │   │   │   ├── local.py         # LocalTransport (current subprocess-based flow)
+│   │   │   │   ├── ssh.py           # SshTransport via paramiko (planned)
+│   │   │   │   └── scheduler.py     # NoScheduler (default) + SlurmScheduler (planned, optional)
 │   │   │   ├── athenak_repo.py      # clone/update upstream; locate pgen dir
 │   │   │   ├── workspace.py         # per-project workspace layout
 │   │   │   ├── builder.py           # cmake + cmake --build wrapper (uses ComputeTarget)
@@ -231,28 +231,39 @@ without gaps. The on-disk log is the source of truth; Redis is the fan-out.
 - Output files accumulate per run; prune `workspaces/<slug>/runs/` by hand
   for now.
 
-## 4b. Compute targets (plug-and-play: local, SSH, SSH+Slurm)
+## 4b. Compute targets (plug-and-play: Transport × Scheduler)
 
 **See [`docs/HPC-SSH.md`](./docs/HPC-SSH.md) for the full design, roadmap (J0–J6), and open questions. Summary only here.**
 
-Every project pins a **compute target**:
+Every project pins a **Transport** (how we reach the host) and a **Scheduler** (whether we wrap in a batch job). They're orthogonal — any combination is valid.
 
-| Kind | What it is | Status |
-|---|---|---|
-| `local` | `subprocess.Popen` on the backend host. Current code path. | **Shipped** — the entire existing flow is this kind. |
-| `ssh` | Paramiko-based. Stage files over SFTP, run `cmake`/`make`/`athena` via `exec_command` with a configurable `shell_prelude` (typically `module load …`), stream stdout back line-by-line. | **Planned** (J2–J3 in the roadmap). |
-| `ssh+slurm` | Extends `ssh` by wrapping each command in an `sbatch --wait` job; tails the Slurm `--output=` log via SFTP for live streaming. | **Planned** (J6). |
+| Axis | Kind | What it is | Status |
+|---|---|---|---|
+| Transport | `local` | `subprocess.Popen` on the backend host. Current code path. | **Shipped** as the sole transport. |
+| Transport | `ssh` | paramiko `SSHClient` + `SFTPClient`. Stage files via SFTP, run `cmake`/`make`/`athena` via `exec_command` with a `shell_prelude` (typically `module load …`), stream stdout line-by-line. | **Planned** (J2–J3). |
+| Scheduler | `none` | `NoScheduler` — one-line pass-through to `transport.run_direct`. | **Shipped implicitly** — today's flow uses this. |
+| Scheduler | `slurm` | `SlurmScheduler` — writes an sbatch wrapper, runs `sbatch --wait --output=<log>`, tails the output log via `transport.open_stream`. Opt-in per project; defaults to wrapping **runs only** (`scheduler_scope = ["run"]`) so builds stay fast. | **Planned** (J6, fully optional). |
 
-The `Project` model will gain two columns (Alembic migration `0002_compute_target.py` planned):
+**`local`/`ssh` × `none`/`slurm` gives four valid combinations.** The common HPC case is `ssh + none` (login-node interactive work) or `ssh + slurm(scope=["run"])` (builds direct, runs queued). `local + slurm` works for free on workstations with `slurmd`.
 
-- `compute_kind: str` — one of `local`, `ssh`, `ssh+slurm`. Default `local`.
-- `compute_config: JSON` — discriminated by `compute_kind`. For `ssh`: `host`, `port`, `user`, `key_path`, `remote_cache_dir`, `shell_prelude: list[str]`. For `ssh+slurm`: adds `scheduler: {kind, partition, account, time, gres, …}`.
+The `Project` model gains a single column (Alembic migration `0002_compute_config.py` planned):
 
-`services/{builder,runner,outputs}.py` will be refactored behind a `ComputeTarget` ABC with a `Transport` (file ops) + `Executor` (command streaming) split. The local path becomes the first `ComputeTarget` implementation. The UI and REST surface don't change — log streaming over WebSockets keeps the same replay-then-subscribe contract; output download endpoints stream via SFTP for remote runs.
+```python
+compute_config: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+```
 
-Credentials policy (same doc, §6): keys on disk, paths in DB, passphrases held in an in-memory 1h-TTL keyring after one-time `POST /api/compute/{project_id}/unlock`. A `POST /api/compute/{project_id}/probe` endpoint returns a connection check (`echo ok && uname -a`) for the "Test connection" button in the New Project dialog.
+A discriminated-union Pydantic model (`ComputeConfig` with nested `transport` + `scheduler` blocks and `scheduler_scope: list[Literal["build","run"]]`) validates it. `scheduler` defaults to `{"kind": "none"}` and `scheduler_scope` defaults to `["run"]`, so a blank config means "local, direct exec" — identical to today's behaviour.
 
-**Do not touch any SSH-related code paths without re-reading `docs/HPC-SSH.md` first.** The document locks the abstraction so future work (Slurm, Kerberos, bastion/ProxyJump) slots in without churning the existing services.
+Service call pattern:
+- `services/builder.py` calls `compute.exec_for("build", argv, …)`.
+- `services/runner.py` calls `compute.exec_for("run", argv, …)`.
+- `services/outputs.py` uses `compute.transport.listdir / open_stream / read_text`.
+
+Services never branch on scheduler kind — `exec_for` dispatches through `NoScheduler` or `SlurmScheduler` based on `scheduler_scope`. Adding PBS/LSF is a new `Scheduler` subclass, zero service changes.
+
+Credentials policy (HPC-SSH §6): keys on disk, paths in DB, passphrases held in an in-memory 1h-TTL keyring after one-time `POST /api/compute/{project_id}/unlock`. A `POST /api/compute/{project_id}/probe` endpoint returns a connection check (`echo ok && uname -a`); for `scheduler.kind == "slurm"` it additionally runs `sbatch --test-only`.
+
+**Do not touch any compute-related code paths without re-reading `docs/HPC-SSH.md` first.** The document locks the abstraction so future work (PBS/LSF, Kerberos, bastion/ProxyJump, per-launch scheduler overrides) slots in without churning the existing services.
 
 ## 5. Backend architecture
 
@@ -260,7 +271,7 @@ Credentials policy (same doc, §6): keys on disk, paths in DB, passphrases held 
 
 ```
 Project(id, name, slug UNIQUE, physics_module, athenak_ref,
-        compute_kind, compute_config JSON,          # see §4b
+        compute_config JSON,                         # nested transport+scheduler, see §4b
         created_at, updated_at)
 ProblemFile(id, project_id FK, filename, content TEXT, updated_at)
 InputFile(id, project_id FK, filename, content TEXT, updated_at)
@@ -272,25 +283,27 @@ Run(id, build_id FK, input_file_id FK, status, pid, log_path, output_dir, starte
 
 ### 5.2 Build pipeline (`workers/tasks.build_project`)
 
-The task resolves the project's `ComputeTarget` first; every filesystem and process operation below goes through it, so the same prose describes the local and SSH flows.
+The task resolves the project's `ComputeTarget` first; every filesystem and process operation below goes through it, so the same prose describes every Transport × Scheduler combination.
 
-1. `compute = get_compute(project)`; `compute.ensure_bootstrapped()` (no-op for `local`; clones AthenaK on first use for `ssh`).
+1. `compute = get_compute(project)`; `compute.ensure_bootstrapped()` (no-op for `LocalTransport`; clones AthenaK on first use for `SshTransport`).
 2. Mark `Build.status = running`; open the **local** `log_path` for append.
-3. Under the upstream lock (filelock for `local`, remote `flock` for `ssh`), `compute.transport.upload_text(pgen_dir/"user_problem.cpp", problem.content)`.
-4. `compute.executor.run_streaming(["cmake", "-S", upstream, "-B", build_dir, "-DPROBLEM=user_problem", …], cwd=project_dir, shell_prelude=config.shell_prelude)` for configure.
+3. Under the upstream lock (filelock for local, remote `flock` for ssh), `compute.transport.upload_text(pgen_dir/"user_problem.cpp", problem.content)`.
+4. `compute.exec_for("build", ["cmake", "-S", upstream, "-B", build_dir, "-DPROBLEM=user_problem", …], cwd=project_dir, shell_prelude=config.transport.shell_prelude)` for configure.
 5. Same for `cmake --build build_dir -j$(nproc)`.
-6. Each `on_line` callback appends to the local `log_path` **and** publishes to Redis `build:<id>`.
-7. On success, record `binary_path` = `build_dir/src/athena` (verify against upstream). For `ssh`, this is a remote path, used later by the runner on the same compute target.
-8. **Always** unstage `user_problem.cpp` and release the lock (the invariant from §4 is identical on both sides).
+6. `compute.exec_for(phase, …)` picks the path: `NoScheduler` (direct exec) if `phase ∉ scheduler_scope`, else `SlurmScheduler.submit`. Default scope is `["run"]`, so **builds go direct even when the project has Slurm configured** — the user has to explicitly add `"build"` to `scheduler_scope`.
+7. Each `on_line` callback appends to the local `log_path` **and** publishes to Redis `build:<id>` — same contract for direct and Slurm-tailed streams.
+8. On success, record `binary_path` = `build_dir/src/athena` (verify against upstream). For `SshTransport`, this is a remote path, used later by the runner on the same compute target.
+9. **Always** unstage `user_problem.cpp` and release the lock (the invariant from §4 is identical on all sides).
 
 ### 5.3 Run pipeline (`workers/tasks.run_simulation`)
 
 1. `compute = get_compute(project)`.
 2. `compute.transport.upload_text(runs_dir/run_id/"input.athinput", inp.content)`.
-3. `compute.executor.run_streaming([binary_path, "-i", "input.athinput"], cwd=runs_dir/run_id)`; each line gets written to the local log file and published to Redis `run:<id>`.
-4. On exit, `compute.transport.listdir(runs_dir/run_id)` enumerates produced outputs (`.hst`, `.tab`, `.bin`, `.athdf`, `.rst`).
+3. `compute.exec_for("run", [binary_path, "-i", "input.athinput"], cwd=runs_dir/run_id, shell_prelude=config.transport.shell_prelude)`. With the default `scheduler_scope=["run"]`, a Slurm-configured project will submit this as an sbatch job; a project with `scheduler.kind == "none"` will exec directly.
+4. Each line gets written to the local log file and published to Redis `run:<id>`.
+5. On exit, `compute.transport.listdir(runs_dir/run_id)` enumerates produced outputs (`.hst`, `.tab`, `.bin`, `.athdf`, `.rst`).
 
-The routes in §5.5 don't change — `/api/runs/:id/outputs*` just calls `compute.transport.*` under the hood, streaming via SFTP for `ssh`.
+The routes in §5.5 don't change — `/api/runs/:id/outputs*` just calls `compute.transport.*` under the hood, streaming via SFTP for `SshTransport`.
 
 ### 5.4 WebSocket log streams
 
@@ -319,8 +332,9 @@ GET    /api/runs/{id}/outputs/{name}           # streamed file download
 GET    /api/runs/{id}/outputs/{name}/series    # parsed .hst/.tab → JSON
 
 # Compute (planned — see docs/HPC-SSH.md)
-POST   /api/compute/test                       # dry-run a compute_config without saving
-POST   /api/compute/{project_id}/probe         # "echo ok && uname -a" sanity check
+POST   /api/compute/test                       # dry-run a compute_config without saving (runs probe;
+                                               # adds `sbatch --test-only` when scheduler.kind=="slurm")
+POST   /api/compute/{project_id}/probe         # "echo ok && uname -a" sanity check (+ sbatch --test-only if applicable)
 POST   /api/compute/{project_id}/unlock        # body = {passphrase}; caches decrypted key 1h
 ```
 
@@ -488,9 +502,11 @@ BUILD_JOBS=                 # blank = nproc
 - **Editing the wizard schema.** `schemas/pgen-wizard.ts` (frontend) and `backend/app/services/templates.py` + `backend/templates/user_problem.cpp.j2` must stay in sync. When you add a wizard field, update all three in the same change.
 - **The AthenaK source tree is sacred.** Never commit it as a vendored copy. Never edit it from this codebase's tests. Only `services/builder.py` touches it, and only transiently.
 - **GPU.** We expose `Kokkos_ENABLE_CUDA` / `Kokkos_ENABLE_HIP` as opt-in cmake flags only. Don't assume the host has a GPU; default is CPU.
-- **Compute target is per-project and authoritative.** Never hard-code `Popen` / `Path` into a new service — call the project's `ComputeTarget`. A function that bypasses `compute` is automatically SSH-broken even if it works locally.
+- **Compute target is per-project and authoritative.** Never hard-code `Popen` / `Path` into a new service — call the project's `ComputeTarget`. A function that bypasses `compute` is automatically SSH-broken *and* Slurm-broken even if it works locally.
+- **Use `compute.exec_for(phase, …)` — never `transport.run_direct` or `scheduler.submit` directly from a service.** The target is responsible for picking the path based on `scheduler_scope`. A service that reaches past the target guarantees a future Slurm-scope change will silently break.
 - **Never log passphrases or private keys.** The `/api/compute/.../unlock` payload must be excluded from the access-log formatter; the in-memory keyring never serializes.
 - **Remote paths vs. local paths.** After the refactor, `Build.binary_path` and `Run.output_dir` are strings whose filesystem is owned by the project's compute target. Do not `pathlib.Path(...).exists()` them directly; use `compute.transport.exists`.
+- **Slurm is optional.** The UI must never force a user to fill out a Slurm section. The Scheduler picker in the New Project dialog is collapsed by default, and the default `compute_config` serialises `scheduler.kind == "none"`. If you ever find a code path that requires a Slurm config even when `scheduler.kind == "none"`, that's a bug.
 
 ## 10. Milestone roadmap
 
@@ -507,17 +523,17 @@ Local pipeline (shipped):
 | M6 | Build/Run UI with xterm.js | `frontend/src/features/{builds,runs}` |
 | M7 | Visualization of `.hst`/`.tab` | `frontend/src/features/visualize`, `services/outputs.py` |
 
-HPC / plug-n-play compute (planned — see [`docs/HPC-SSH.md`](./docs/HPC-SSH.md)):
+HPC / plug-n-play compute (planned — see [`docs/HPC-SSH.md`](./docs/HPC-SSH.md)). **Transport and Scheduler are orthogonal; J3 is the shippable "SSH without Slurm" line and J6 is a pure optional addition.**
 
 | # | Goal | Key files |
 |---|---|---|
-| J0 | Introduce `ComputeTarget` ABC + `LocalCompute`; refactor services to use it (no behavioural change). | `backend/app/services/compute/{base,local}.py`, `services/{builder,runner,outputs}.py` |
-| J1 | `compute_kind` + `compute_config` on `Project`; Alembic migration; API accepts them. | `backend/app/models/project.py`, `alembic/versions/0002_compute_target.py`, `api/projects.py` |
-| J2 | `SshCompute` (paramiko) + `/api/compute/{id}/probe` + `/unlock`. Fake-SSH tests. | `services/compute/ssh.py`, `api/compute.py`, `tests/test_compute_ssh.py` |
-| J3 | Remote bootstrap + remote upstream lock. End-to-end SSH build/run. | `services/compute/ssh.py`, `services/athenak_repo.py` (extracted helpers) |
-| J4 | Frontend: compute field group in New Project dialog; compute chip in project header; passphrase banner. | `frontend/src/features/projects/NewProjectDialog.tsx`, new `features/compute/` |
+| J0 | Introduce `ComputeTarget` + `Transport` + `Scheduler` ABCs; `LocalTransport` + `NoScheduler`; refactor services to call `compute.exec_for(phase, …)` (no behavioural change). | `backend/app/services/compute/{base,local,scheduler}.py`, `services/{builder,runner,outputs}.py` |
+| J1 | `compute_config` JSON on `Project`; discriminated-union Pydantic validation; Alembic migration. | `backend/app/models/project.py`, `backend/app/schemas/compute.py`, `alembic/versions/0002_compute_config.py`, `api/projects.py` |
+| J2 | `SshTransport` (paramiko) + `/api/compute/{id}/probe` + `/unlock`. Fake-SSH tests. | `services/compute/ssh.py`, `api/compute.py`, `tests/test_compute_ssh.py` |
+| J3 | Remote bootstrap + remote upstream lock. **End-to-end SSH build/run with `NoScheduler` — shippable HPC support for users who don't need a batch scheduler.** | `services/compute/ssh.py`, `services/athenak_repo.py` (extracted helpers) |
+| J4 | Frontend: two-group compute picker (Transport / Scheduler) in New Project dialog; compute chip in project header; passphrase banner. | `frontend/src/features/projects/NewProjectDialog.tsx`, new `features/compute/` |
 | J5 | Output streaming via SFTP + optional `?mirror=1` local cache. | `api/outputs.py`, `services/compute/ssh.py` |
-| J6 | `SshSlurmCompute` (sbatch + `--output=` tailing). | `services/compute/ssh_slurm.py` |
+| J6 | `SlurmScheduler`: sbatch wrapper, `--output=` tailing via `transport.open_stream`, runs-only scope by default, opt-in build scope. Fully optional. | `services/compute/scheduler.py`, `tests/test_compute_slurm.py` |
 
 ## 11. Verification (end-to-end acceptance)
 

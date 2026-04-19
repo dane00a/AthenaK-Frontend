@@ -27,6 +27,8 @@ make dev
 
 Prerequisites: Python 3.11+, Node 20+, Docker (for the Redis container), a C++17 compiler, CMake ≥ 3.16, and Git.
 
+**First time on a fresh machine?** Read **[`docs/SETUP.md`](./docs/SETUP.md)** — a step-by-step walkthrough from clean OS to a working Sod shock tube run, with version pins, troubleshooting, and a prod-mode section (Postgres, auth, nginx, GPU).
+
 ## Tech stack
 
 FastAPI + Celery + Redis · React 18 + Vite + TypeScript · Tailwind + shadcn/ui · Monaco · xterm.js · Plotly · SQLite (dev) · paramiko (SSH, planned).

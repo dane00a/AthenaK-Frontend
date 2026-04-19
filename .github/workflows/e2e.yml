@@ -1,0 +1,78 @@
+name: e2e
+
+# Real end-to-end against upstream AthenaK. Expensive — gated.
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily 06:00 UTC
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.label.name == 'e2e'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ATHENAK_CACHE_DIR: ${{ github.workspace }}/.athenak-cache
+      DATABASE_URL: sqlite:///./athenak.db
+      REDIS_URL: redis://localhost:6379/0
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ccache
+
+      - name: Install backend
+        working-directory: backend
+        run: pip install -e '.[dev]'
+
+      - name: Bootstrap AthenaK
+        run: ./scripts/bootstrap_athenak.sh
+
+      - name: Start backend + worker
+        working-directory: backend
+        run: |
+          uvicorn app.main:app --port 8000 &
+          echo $! > uvicorn.pid
+          celery -A app.workers.celery_app.celery worker --loglevel=info &
+          echo $! > celery.pid
+          # Wait for /api/health
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8000/api/health && break
+            sleep 1
+          done
+
+      - name: Run e2e driver
+        run: python scripts/e2e.py
+
+      - name: Dump logs on failure
+        if: failure()
+        run: |
+          ls -la "$ATHENAK_CACHE_DIR/workspaces" || true
+          find "$ATHENAK_CACHE_DIR/workspaces" -name '*.log' -print -exec tail -n 200 {} \; || true
+
+      - name: Stop services
+        if: always()
+        working-directory: backend
+        run: |
+          kill "$(cat uvicorn.pid 2>/dev/null)" 2>/dev/null || true
+          kill "$(cat celery.pid 2>/dev/null)" 2>/dev/null || true

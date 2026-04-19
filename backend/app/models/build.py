@@ -21,8 +21,12 @@ class Build(Base):
     __tablename__ = "builds"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
-    status: Mapped[BuildStatus] = mapped_column(Enum(BuildStatus), default=BuildStatus.queued, nullable=False)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[BuildStatus] = mapped_column(
+        Enum(BuildStatus), default=BuildStatus.queued, nullable=False
+    )
     cmake_flags: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     log_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     binary_path: Mapped[str | None] = mapped_column(String(500), nullable=True)

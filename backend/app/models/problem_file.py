@@ -12,7 +12,9 @@ class ProblemFile(Base):
     __tablename__ = "problem_files"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), unique=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), unique=True
+    )
     filename: Mapped[str] = mapped_column(String(200), default="user_problem.cpp", nullable=False)
     content: Mapped[str] = mapped_column(Text, default="", nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

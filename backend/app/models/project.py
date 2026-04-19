@@ -21,6 +21,8 @@ class Project(Base):
         DateTime, server_default=func.now(), onupdate=func.now()
     )
 
-    problem_file = relationship("ProblemFile", uselist=False, back_populates="project", cascade="all, delete-orphan")
+    problem_file = relationship(
+        "ProblemFile", uselist=False, back_populates="project", cascade="all, delete-orphan"
+    )
     input_files = relationship("InputFile", back_populates="project", cascade="all, delete-orphan")
     builds = relationship("Build", back_populates="project", cascade="all, delete-orphan")

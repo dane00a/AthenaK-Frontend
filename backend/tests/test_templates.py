@@ -12,11 +12,9 @@ def test_user_region_preservation() -> None:
     first = render_problem_cpp(WizardParams(initial_condition="uniform"))
     edited = first.replace(
         "// >>> user:pre_init\n",
-        "// >>> user:pre_init\n  Real my_param = pin->GetReal(\"problem\", \"rho0\");\n",
+        '// >>> user:pre_init\n  Real my_param = pin->GetReal("problem", "rho0");\n',
         1,
     )
-    regenerated = render_problem_cpp(
-        WizardParams(initial_condition="blast"), prior_source=edited
-    )
+    regenerated = render_problem_cpp(WizardParams(initial_condition="blast"), prior_source=edited)
     regions = extract_user_regions(regenerated)
     assert "my_param" in regions["pre_init"]

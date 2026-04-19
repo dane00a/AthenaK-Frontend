@@ -8,6 +8,7 @@ AthenaK signature::
 Hand-edited regions are preserved across regenerations using
 ``// >>> user:<name>`` / ``// <<< user:<name>`` markers.
 """
+
 from __future__ import annotations
 
 import re

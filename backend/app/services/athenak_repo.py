@@ -4,6 +4,7 @@ The upstream tree is read-mostly. The only mutation is transient: a single
 `user_problem.cpp` is placed into ``src/pgen/`` by :mod:`app.services.builder`
 for the duration of a build, then removed. See CLAUDE.md §4.
 """
+
 from __future__ import annotations
 
 import subprocess

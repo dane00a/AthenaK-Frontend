@@ -8,6 +8,7 @@ Flow (see CLAUDE.md §5.2):
 4. Stream lines to ``log_path`` and to a callback (typically a Redis publisher).
 5. Always unstage and release the lock.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -65,6 +66,7 @@ def build(
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     with log_path.open("a", encoding="utf-8") as log_fp:
+
         def to_log(line: str) -> None:
             log_fp.write(line + "\n")
             log_fp.flush()

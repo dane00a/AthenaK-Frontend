@@ -3,6 +3,7 @@
 Only .hst (history) and .tab (1D tab dumps) are supported in v1; .athdf/.bin
 are exposed as raw download links and will be parsed later.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

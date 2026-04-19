@@ -34,14 +34,9 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-# Routers are wired here as they're implemented. See CLAUDE.md §5.5 for the
-# REST surface. Keep each router focused on a single resource.
-#
-# from .api import projects, problems, inputs, builds, runs, outputs, ws
-# app.include_router(projects.router, prefix="/api")
-# app.include_router(problems.router, prefix="/api")
-# app.include_router(inputs.router, prefix="/api")
-# app.include_router(builds.router, prefix="/api")
-# app.include_router(runs.router, prefix="/api")
-# app.include_router(outputs.router, prefix="/api")
-# app.include_router(ws.router)
+from .api import inputs, problems, projects, ws  # noqa: E402
+
+app.include_router(projects.router, prefix="/api")
+app.include_router(problems.router, prefix="/api")
+app.include_router(inputs.router, prefix="/api")
+app.include_router(ws.router)

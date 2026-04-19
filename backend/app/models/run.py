@@ -23,7 +23,9 @@ class Run(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     build_id: Mapped[int] = mapped_column(ForeignKey("builds.id", ondelete="CASCADE"), index=True)
     input_file_id: Mapped[int] = mapped_column(ForeignKey("input_files.id", ondelete="RESTRICT"))
-    status: Mapped[RunStatus] = mapped_column(Enum(RunStatus), default=RunStatus.queued, nullable=False)
+    status: Mapped[RunStatus] = mapped_column(
+        Enum(RunStatus), default=RunStatus.queued, nullable=False
+    )
     pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     log_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     output_dir: Mapped[str | None] = mapped_column(String(500), nullable=True)

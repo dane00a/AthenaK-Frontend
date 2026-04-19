@@ -1,4 +1,5 @@
 """WebSocket log streams for builds and runs. See CLAUDE.md §5.4."""
+
 from __future__ import annotations
 
 import asyncio
@@ -38,7 +39,11 @@ async def _stream_channel(ws: WebSocket, channel: str) -> None:
                 payload = json.loads(msg["data"])
             except json.JSONDecodeError:
                 continue
-            if payload.get("type") == "status" and payload.get("status") in {"success", "failed", "cancelled"}:
+            if payload.get("type") == "status" and payload.get("status") in {
+                "success",
+                "failed",
+                "cancelled",
+            }:
                 break
     finally:
         await pubsub.unsubscribe(channel)

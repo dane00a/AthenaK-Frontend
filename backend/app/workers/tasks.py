@@ -3,10 +3,11 @@
 These are intentionally thin wrappers — the real orchestration lives in
 ``services/builder.py`` and ``services/runner.py``.
 """
+
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import redis
@@ -45,7 +46,7 @@ def build_project(build_id: int) -> None:
         channel = f"build:{build_id}"
         log_path = workspace.logs_dir(project.slug) / f"build-{build_id}.log"
         build.status = BuildStatus.running
-        build.started_at = datetime.now(timezone.utc)
+        build.started_at = datetime.now(UTC)
         build.log_path = str(log_path)
         db.commit()
         _publish_status(channel, "running")
@@ -61,12 +62,12 @@ def build_project(build_id: int) -> None:
         except Exception as exc:  # noqa: BLE001
             build.status = BuildStatus.failed
             build.error = str(exc)
-            build.finished_at = datetime.now(timezone.utc)
+            build.finished_at = datetime.now(UTC)
             db.commit()
             _publish_status(channel, "failed")
             raise
 
-        build.finished_at = datetime.now(timezone.utc)
+        build.finished_at = datetime.now(UTC)
         if result.success and result.binary_path:
             build.status = BuildStatus.success
             build.binary_path = str(result.binary_path)
@@ -103,7 +104,7 @@ def run_simulation(run_id: int) -> None:
         log_path = workspace.logs_dir(project.slug) / f"run-{run_id}.log"
 
         run.status = RunStatus.running
-        run.started_at = datetime.now(timezone.utc)
+        run.started_at = datetime.now(UTC)
         run.output_dir = str(run_dir)
         run.log_path = str(log_path)
         db.commit()
@@ -120,14 +121,14 @@ def run_simulation(run_id: int) -> None:
         except Exception as exc:  # noqa: BLE001
             run.status = RunStatus.failed
             run.error = str(exc)
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = datetime.now(UTC)
             db.commit()
             _publish_status(channel, "failed")
             raise
 
         run.pid = result.pid
         run.exit_code = result.exit_code
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         run.status = RunStatus.success if result.exit_code == 0 else RunStatus.failed
         db.commit()
         _publish_status(channel, run.status.value)

@@ -9,6 +9,7 @@ Syntax (see CLAUDE.md §6.3):
 Blocks are flat (no nesting). Values are stored as strings; higher layers may
 coerce via the field catalog in ``frontend/src/schemas/athinput.ts``.
 """
+
 from __future__ import annotations
 
 import re

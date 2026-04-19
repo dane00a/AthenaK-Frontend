@@ -1,4 +1,5 @@
 """Per-project filesystem layout under ``$ATHENAK_CACHE_DIR/workspaces/``."""
+
 from __future__ import annotations
 
 from pathlib import Path

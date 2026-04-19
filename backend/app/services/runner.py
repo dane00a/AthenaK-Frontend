@@ -1,4 +1,5 @@
 """Launch a built AthenaK binary against an .athinput file and stream its output."""
+
 from __future__ import annotations
 
 import subprocess
@@ -28,6 +29,7 @@ def run_simulation(
     input_path.write_text(input_text, encoding="utf-8")
 
     with log_path.open("a", encoding="utf-8") as log_fp:
+
         def to_log(line: str) -> None:
             log_fp.write(line + "\n")
             log_fp.flush()

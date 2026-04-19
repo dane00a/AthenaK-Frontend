@@ -1,0 +1,66 @@
+# Local-dev orchestration. Only Redis is run in a container by default — the
+# backend and frontend run on the host via `make dev` for fast reload and easy
+# access to the upstream AthenaK clone. The backend/frontend services are
+# provided here for users who prefer a fully containerised dev loop.
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    profiles: ["full"]
+    build:
+      context: ./backend
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: sqlite:////data/athenak.db
+      ATHENAK_CACHE_DIR: /data/athenak
+    volumes:
+      - ./backend:/app
+      - athenak-cache:/data
+    ports:
+      - "8000:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    profiles: ["full"]
+    build:
+      context: ./backend
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: sqlite:////data/athenak.db
+      ATHENAK_CACHE_DIR: /data/athenak
+    volumes:
+      - ./backend:/app
+      - athenak-cache:/data
+    command: celery -A app.workers.celery_app.celery worker --loglevel=info
+
+  frontend:
+    profiles: ["full"]
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+      VITE_WS_BASE_URL: ws://localhost:8000
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "5173:5173"
+    command: pnpm dev --host
+
+volumes:
+  athenak-cache:

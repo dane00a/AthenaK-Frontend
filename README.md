@@ -1,1 +1,43 @@
 # AthenaK-Frontend
+
+A browser-based frontend for [AthenaK](https://github.com/IAS-Astrophysics/athenak) — the Kokkos-based astrophysical MHD/GR code. Write problem generators with a wizard + editor, edit `.athinput` files with a form, compile, run, and visualize — all from the browser.
+
+> **Status:** scaffolding. See [`CLAUDE.md`](./CLAUDE.md) for architecture, conventions, and the milestone roadmap. The long-form design doc lives at `/root/.claude/plans/analyze-this-repository-and-squishy-yao.md`.
+
+## What it does
+
+- **Problem wizard → C++.** Pick a physics module, initial condition, and hooks; get a compliant `src/pgen/` file. Edit freely in Monaco.
+- **Input editor.** Structured form for `.athinput` blocks (`<mesh>`, `<time>`, `<hydro>`, …) with raw-text escape hatch.
+- **Compile.** `cmake -DPROBLEM=user_problem …` with live build log (xterm.js).
+- **Run.** Launch the built binary; stream stdout; collect outputs.
+- **Visualize.** `.hst` / `.tab` → line plots (Plotly).
+
+AthenaK's source tree is never modified. The user's problem file is copied into `src/pgen/` only for the duration of a build.
+
+## Quick start
+
+```bash
+cp .env.example .env
+./scripts/bootstrap_athenak.sh    # clones AthenaK into ~/.athenak-frontend/upstream/athenak
+make install
+make dev
+# open http://localhost:5173
+```
+
+Prerequisites: Python 3.11+, Node 20+, Docker (for the Redis container), a C++17 compiler, CMake ≥ 3.16, and Git.
+
+## Tech stack
+
+FastAPI + Celery + Redis · React 18 + Vite + TypeScript · Tailwind + shadcn/ui · Monaco · xterm.js · Plotly · SQLite (dev).
+
+## Dev commands
+
+| Command | Purpose |
+|---|---|
+| `make dev` | Run redis + backend + celery + frontend with reload |
+| `make test` | `pytest` + `vitest` + `tsc --noEmit` |
+| `make lint` | `ruff` + `eslint` |
+| `make fmt` | `ruff format` + `prettier --write` |
+| `make migrate` | `alembic upgrade head` |
+
+See `CLAUDE.md` for the full reference.

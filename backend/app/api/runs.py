@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -68,3 +71,31 @@ def cancel_run(run_id: int, db: Session = Depends(get_db)) -> Run:
         db.commit()
     db.refresh(run)
     return run
+
+
+@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_run(run_id: int, db: Session = Depends(get_db)) -> None:
+    """Remove the run DB row, its output directory, and its log file.
+
+    Fails with 409 if the run is still in flight — cancel first.
+    """
+    run = db.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    if run.status in (RunStatus.queued, RunStatus.running):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"cannot delete a run in state {run.status.value}; cancel first",
+        )
+    # Drop on-disk artifacts.
+    if run.output_dir:
+        out_dir = Path(run.output_dir)
+        if out_dir.exists():
+            shutil.rmtree(out_dir, ignore_errors=True)
+    if run.log_path:
+        log_path = Path(run.log_path)
+        if log_path.exists():
+            log_path.unlink(missing_ok=True)
+
+    db.delete(run)
+    db.commit()

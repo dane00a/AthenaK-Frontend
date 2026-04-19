@@ -59,9 +59,21 @@ export function RunsPanel() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["runs", buildId] }),
   });
 
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => api.deleteRun(id),
+    onSuccess: (_d, id) => {
+      qc.invalidateQueries({ queryKey: ["runs", buildId] });
+      if (id === activeRun) setActiveRun(null);
+    },
+  });
+
   const active = runsQ.data?.find((r) => r.id === activeRun);
   const activeStatus = liveStatus ?? active?.status;
   const activeCancellable = activeStatus === "queued" || activeStatus === "running";
+  const activeDeletable =
+    activeStatus === "success" ||
+    activeStatus === "failed" ||
+    activeStatus === "cancelled";
 
   return (
     <div className="grid h-full grid-rows-[auto_1fr]">
@@ -114,6 +126,22 @@ export function RunsPanel() {
               className="rounded-md border border-red-500/40 px-2 py-0.5 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-50"
             >
               {cancelMut.isPending ? "Cancelling…" : "Cancel"}
+            </button>
+          )}
+          {active && activeDeletable && (
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Delete run #${active.id}? This removes the DB row, its outputs directory, and its log.`,
+                  )
+                )
+                  deleteMut.mutate(active.id);
+              }}
+              disabled={deleteMut.isPending}
+              className="rounded-md border border-red-500/40 px-2 py-0.5 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+            >
+              {deleteMut.isPending ? "Deleting…" : "Delete"}
             </button>
           )}
           {active?.exit_code !== null && active?.exit_code !== undefined && (

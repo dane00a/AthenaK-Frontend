@@ -132,6 +132,13 @@ export const api = {
   listRuns: (build_id: number) => request<Run[]>(`/api/builds/${build_id}/runs`),
   getRun: (id: number) => request<Run>(`/api/runs/${id}`),
   cancelRun: (id: number) => request<Run>(`/api/runs/${id}/cancel`, { method: "POST" }),
+  deleteRun: (id: number) =>
+    fetch(`${API_BASE}/api/runs/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).then((r) => {
+      if (!r.ok && r.status !== 204) throw new Error(`${r.status}`);
+    }),
   listOutputs: (id: number) =>
     request<{ name: string; size: number; kind: string }[]>(`/api/runs/${id}/outputs`),
   getSeries: (id: number, name: string) =>

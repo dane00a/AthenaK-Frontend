@@ -145,6 +145,86 @@ Builds for different projects are serialized on the shared upstream clone (via f
 
 `services/athenak_repo.py` owns the bootstrap/update lifecycle. First call clones with `--recurse-submodules` to the ref recorded on the project (`Project.athenak_ref`, defaults to `main`); later calls fast-forward or skip.
 
+## 4a. Data & storage layout (where every byte lives)
+
+Two stores: **metadata in SQLite**, **bytes on the filesystem** under
+`$ATHENAK_CACHE_DIR` (default `~/.athenak-frontend`). Nothing lives inside
+the git repo.
+
+### SQLite (metadata only)
+
+File: `backend/athenak.db` (configurable via `DATABASE_URL`).
+
+| Table | Key columns | What it owns |
+|---|---|---|
+| `projects` | id, slug, name, physics_module, athenak_ref | Project identity. |
+| `problem_files` | project_id (unique), filename, content | Full C++ source as a TEXT blob. |
+| `input_files` | project_id, filename, content | Full `.athinput` source as TEXT. |
+| `builds` | project_id, status, cmake_flags (JSON), binary_path, log_path | Build lifecycle + pointers. |
+| `runs` | build_id, input_file_id, status, pid, output_dir, log_path, exit_code | Run lifecycle + pointers. |
+
+Deleting a project cascades to its problem file, inputs, builds, and runs.
+Deleting a build cascades to its runs. On-disk artifacts are **not** deleted
+automatically (intentional — outputs are often the valuable part). A future
+`DELETE /api/projects/{id}?purge=1` can nuke the workspace dir too.
+
+### Filesystem (the actual bytes)
+
+```
+$ATHENAK_CACHE_DIR/
+├── upstream.lock                          # filelock held by builder
+├── upstream/athenak/                      # single shared AthenaK clone
+│   └── src/pgen/user_problem.cpp          # transient: staged during build, removed after
+└── workspaces/<project-slug>/
+    ├── build/                             # CMake build dir (per-project, persistent cache)
+    │   └── src/athena                     # <-- recorded in builds.binary_path
+    ├── inputs/                            # reserved for future on-disk input copies
+    ├── logs/
+    │   ├── build-<build_id>.log           # append-only full transcript
+    │   └── run-<run_id>.log
+    └── runs/<run_id>/                     # cwd for the simulation; OUTPUT FILES LAND HERE
+        ├── input.athinput                 # copy of the input at launch time
+        ├── <basename>.hst                 # history file (AthenaK's <output> block)
+        ├── <basename>.tab                 # 1D tab dumps (per-time-step)
+        ├── <basename>.bin                 # binary dumps
+        ├── <basename>.athdf / .rst        # HDF5 dumps / restart files
+        └── …
+```
+
+### How output files get there
+
+1. `POST /api/builds/{id}/runs` enqueues `workers.tasks.run_simulation`.
+2. The task creates `workspaces/<slug>/runs/<run_id>/` and writes
+   `input.athinput` into it.
+3. `services/runner.run_simulation` launches the built binary with
+   **`cwd=runs/<run_id>`** and `-i input.athinput`. AthenaK writes all
+   `<output>`-block products relative to its cwd, so they land in that
+   directory.
+4. `Run.output_dir` is set to that path on the DB row.
+5. `runner.list_outputs(run_dir)` globs for `*.hst`, `*.tab`, `*.bin`,
+   `*.athdf`, `*.rst` when the frontend calls `GET /api/runs/{id}/outputs`.
+6. `GET /api/runs/{id}/outputs/{name}` streams the raw file back;
+   `/series` parses `.hst` / `.tab` into JSON columns/rows via
+   `services/outputs.parse_hst`.
+
+### Logs — two places, deliberately
+
+Every line of `cmake`/`make`/`athena` stdout is **both** appended to the
+per-build/run log file under `logs/` **and** published to the Redis channel
+`build:<id>` / `run:<id>`. A WebSocket client connecting to
+`/ws/builds/{id}` or `/ws/runs/{id}` receives the historical transcript from
+disk first, then the live Redis stream — so reload-during-a-build works
+without gaps. The on-disk log is the source of truth; Redis is the fan-out.
+
+### Retention / cleanup
+
+- `make clean` drops the SQLite DB and in-repo build artefacts. It does
+  **not** touch `$ATHENAK_CACHE_DIR`.
+- To wipe everything, remove `~/.athenak-frontend/` and re-run
+  `./scripts/bootstrap_athenak.sh`.
+- Output files accumulate per run; prune `workspaces/<slug>/runs/` by hand
+  for now.
+
 ## 5. Backend architecture
 
 ### 5.1 Data model
@@ -232,13 +312,23 @@ The template delimits user-editable zones with `// >>> user:<name>` / `// <<< us
 
 Two-pane:
 - **Left — Wizard:** form rendered from `schemas/pgen-wizard.ts`; "Generate" calls `POST /api/projects/{id}/problem/from-wizard`, which returns fresh C++.
-- **Right — Monaco** with `cpp` language, a custom completion provider for AthenaK idioms (`par_for`, `CellCenterX`, `pin->GetReal`), and marker rendering driven by the latest build's diagnostics.
+- **Right — Monaco** with the `cpp` language, enhanced via `lib/monaco/athenak-cpp.ts`:
+  - **Completions** (Snippet kind): `par_for`, `par_for_outer`, `pin->GetReal`, `pin->GetOrAddReal`, `pin->GetInteger`, `pin->GetString`, `CellCenterX`, `LeftEdgeX`, `PrimToCons (hydro)`, `PrimToCons (mhd)`, and a `user region` template that emits a round-trip-safe region pair.
+  - **Hover docs** for `IDN`/`IVX`/`IVY`/`IVZ`/`IEN`/`IBX`/`IBY`/`IBZ`, `par_for`, `KOKKOS_LAMBDA`, `KOKKOS_INLINE_FUNCTION`, `CellCenterX`, `LeftEdgeX`, `PrimToCons`, `ParameterInput`, `MeshBlockPack`.
+  - **Folding regions** for every `// >>> user:<name>` … `// <<< user:<name>` pair.
+- **Keyboard**: `⌘/Ctrl+S` saves, `Alt+N` / `Alt+P` jump to the next/previous user region.
+- **Chrome**: `components/EditorToolbar` (theme / font / word-wrap / minimap, persisted to `localStorage` via `lib/monaco/useEditorPrefs.ts`) and `components/EditorStatusBar` (line/col, line count, language, dirty indicator).
 
 Regenerate preserves hand edits inside `// >>> user:<name>` regions.
 
 ### 6.3 Input Editor tab
 
-Form driven by `schemas/athinput.ts`, which enumerates the canonical blocks and their typed fields: `<comment>`, `<job>`, `<mesh>`, `<mesh_refinement>`, `<meshblock>`, `<time>`, `<hydro>`, `<mhd>`, `<radiation>`, `<z4c>`, `<problem>`, `<output1..N>`. Raw-text toggle parses/serializes via `services/athinput.py` so the two views stay in sync. Required-field validation runs client-side before POST.
+Form driven by `schemas/athinput.ts`, which enumerates the canonical blocks and their typed fields: `<comment>`, `<job>`, `<mesh>`, `<mesh_refinement>`, `<meshblock>`, `<time>`, `<hydro>`, `<mhd>`, `<radiation>`, `<z4c>`, `<problem>`, `<output1..N>`. Raw-text toggle parses/serializes via `lib/athinput.ts` (mirrors `services/athinput.py`) so the two views stay in sync. Required-field validation runs client-side before POST. Double-clicking an input in the sidebar renames it.
+
+The Raw pane uses a first-class Monaco language (`lib/monaco/athinput-language.ts`) with:
+- Monarch tokens for block headers, kv lines, numbers, strings, `#` comments.
+- `<` / `>` auto-closing pairs and `#` line comments.
+- Completion snippets for every canonical block.
 
 ### 6.4 Build tab
 
@@ -320,8 +410,33 @@ BUILD_JOBS=                 # blank = nproc
 
 ### Tests
 
-- Backend: one test per API endpoint happy path, plus focused unit tests for `services/builder.py`, `services/templates.py`, `services/athinput.py`. Use a temp-dir workspace and a fake "AthenaK" (tiny CMake project that builds an `athena` stub) so builder tests don't need the real codebase.
-- Frontend: render tests for each feature's top-level component + schema round-trip tests for `athinput.ts`.
+**Backend (pytest, 100+ tests).** Run `cd backend && pytest -q`.
+- `test_projects_api.py` / `test_problems_api.py` / `test_inputs_api.py` — CRUD happy paths and 404s.
+- `test_builds_api.py` — full build/run lifecycle with patched builder/runner and path-traversal guard on downloads.
+- `test_builder_unit.py` — `_format_flags`, and the critical invariant that `user_problem.cpp` is *always* removed (success, configure-failure, thrown exception).
+- `test_builder_integration.py` — real `cmake` against a miniature fake-AthenaK tree that mirrors the `PROBLEM=` cache-var selection; auto-skipped if `cmake`/`c++` aren't on PATH.
+- `test_athenak_repo.py` — clone detection, `reset_pgen` idempotency, reentrant `upstream_lock`.
+- `test_templates_matrix.py` — **parametrised over every `(physics module × initial condition)` pair** to catch template regressions.
+- `test_athinput.py` / `test_athinput_edge_cases.py` — CRLF, inline comments, `=`-in-values, orphan kvs, empty blocks, repeated headers.
+- `test_outputs_parser.py` — scientific notation, negatives, malformed rows filtered, empty / header-only files.
+- `test_slug.py` — unicode stripping, fallback, incremental suffixing.
+- `test_error_paths.py` — validation + 404s across every resource.
+
+**Frontend (vitest, 30+ tests).** Run `cd frontend && pnpm vitest run`.
+- `components/__tests__/StatusPill.test.tsx`
+- `components/ui/__tests__/Modal.test.tsx` (Escape, overlay-click vs. inner-click)
+- `features/problem-editor/__tests__/WizardForm.test.tsx`
+- `features/input-editor/__tests__/InputForm.test.tsx`
+- `features/projects/__tests__/ProjectList.test.tsx` (loading / empty / error / populated)
+- `lib/__tests__/api.test.ts` (header shape, error surfacing, URL-encoding)
+- `lib/__tests__/athinput.test.ts` (parse/serialize round-trip)
+- `lib/monaco/__tests__/athenak-cpp.test.ts` (snippet coverage, hover docs)
+- `schemas/__tests__/pgen-wizard.test.ts`
+
+### Adding a new test
+
+- Backend endpoint test: drop a `test_<resource>_api.py` alongside the others; `client` fixture from `conftest.py` swaps in an in-memory SQLite and makes Celery eager. If your route enqueues a task, patch `builder.build` / `runner.run_simulation` / `tasks._redis` exactly like `test_error_paths._fakes` does.
+- Frontend component test: colocate under `__tests__/` next to the component. If it uses react-query, wrap in a fresh `QueryClientProvider`; if it uses routing hooks, wrap in `MemoryRouter`.
 
 ## 9. Gotchas and watch-outs
 

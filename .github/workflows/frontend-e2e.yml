@@ -1,0 +1,49 @@
+name: frontend-e2e
+
+on:
+  schedule:
+    - cron: "0 7 * * *" # daily 07:00 UTC
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.label.name == 'ui-e2e'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile=false
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: pnpm playwright install --with-deps chromium
+
+      - name: Run Playwright smoke
+        working-directory: frontend
+        run: pnpm test:e2e
+
+      - name: Upload trace/video on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            frontend/test-results/
+            frontend/playwright-report/
+          retention-days: 7

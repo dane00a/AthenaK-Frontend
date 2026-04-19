@@ -10,7 +10,8 @@
     "test": "vitest",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "gen:api": "tsx scripts/gen-api.ts"
+    "gen:api": "tsx scripts/gen-api.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
@@ -29,6 +30,7 @@
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@testing-library/jest-dom": "^6.4.6",
     "@testing-library/react": "^16.0.0",
     "@types/plotly.js-dist-min": "^2.3.4",

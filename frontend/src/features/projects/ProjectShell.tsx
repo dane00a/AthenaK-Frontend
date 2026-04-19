@@ -1,8 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { NavLink, Outlet, useParams } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
 
 import { api, type Project } from "../../lib/api";
+import { EditProjectDialog } from "./EditProjectDialog";
 
 const TABS = [
   { to: "problem", label: "Problem" },
@@ -18,11 +20,31 @@ export type ProjectContext = { project: Project };
 export function ProjectShell() {
   const { projectId } = useParams();
   const id = Number(projectId);
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [editing, setEditing] = useState(false);
+
   const q = useQuery({
     queryKey: ["project", id],
     queryFn: () => api.getProject(id),
     enabled: Number.isFinite(id),
   });
+
+  const deleteMut = useMutation({
+    mutationFn: () => api.deleteProject(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+      navigate("/");
+    },
+  });
+
+  const onDelete = () => {
+    if (!q.data) return;
+    const ok = window.confirm(
+      `Delete project "${q.data.name}"? This removes DB rows for problem files, inputs, builds, and runs. On-disk workspace files are kept.`,
+    );
+    if (ok) deleteMut.mutate();
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -43,6 +65,23 @@ export function ProjectShell() {
             </>
           )}
         </div>
+        {q.data && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setEditing(true)}
+              className="rounded-md border border-muted px-2 py-1 text-xs text-foreground/80 hover:bg-muted/40"
+            >
+              Edit
+            </button>
+            <button
+              onClick={onDelete}
+              disabled={deleteMut.isPending}
+              className="rounded-md border border-red-500/40 px-2 py-1 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+            >
+              {deleteMut.isPending ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        )}
       </div>
       <nav className="flex gap-1 border-b border-muted px-4">
         {TABS.map((t) => (
@@ -69,6 +108,13 @@ export function ProjectShell() {
           <div className="p-6 text-foreground/60">…</div>
         )}
       </div>
+      {q.data && (
+        <EditProjectDialog
+          project={q.data}
+          open={editing}
+          onClose={() => setEditing(false)}
+        />
+      )}
     </div>
   );
 }

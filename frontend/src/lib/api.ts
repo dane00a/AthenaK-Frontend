@@ -67,8 +67,19 @@ export const api = {
       body: JSON.stringify({ template_id, name }),
     }),
   getProject: (id: number) => request<Project>(`/api/projects/${id}`),
+  updateProject: (
+    id: number,
+    body: { name?: string; physics_module?: string; athenak_ref?: string },
+  ) =>
+    request<Project>(`/api/projects/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
   deleteProject: (id: number) =>
-    fetch(`${API_BASE}/api/projects/${id}`, { method: "DELETE" }).then((r) => {
+    fetch(`${API_BASE}/api/projects/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).then((r) => {
       if (!r.ok && r.status !== 204) throw new Error(`${r.status}`);
     }),
   getProblem: (id: number) => request<ProblemFile>(`/api/projects/${id}/problem`),

@@ -9,8 +9,8 @@ from pathlib import Path
 import redis.asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from .. import db as _db
 from ..config import settings
-from ..db import SessionLocal
 from ..models import Build, Run
 
 router = APIRouter()
@@ -54,7 +54,7 @@ async def _stream_channel(ws: WebSocket, channel: str) -> None:
 @router.websocket("/ws/builds/{build_id}")
 async def build_logs(ws: WebSocket, build_id: int) -> None:
     await ws.accept()
-    with SessionLocal() as db:
+    with _db.SessionLocal() as db:
         build = db.get(Build, build_id)
         log_path = Path(build.log_path) if build and build.log_path else None
     try:
@@ -69,7 +69,7 @@ async def build_logs(ws: WebSocket, build_id: int) -> None:
 @router.websocket("/ws/runs/{run_id}")
 async def run_logs(ws: WebSocket, run_id: int) -> None:
     await ws.accept()
-    with SessionLocal() as db:
+    with _db.SessionLocal() as db:
         run = db.get(Run, run_id)
         log_path = Path(run.log_path) if run and run.log_path else None
     try:

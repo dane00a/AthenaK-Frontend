@@ -4,8 +4,9 @@ import { useOutletContext } from "react-router-dom";
 
 import { LogPane } from "../../components/LogPane";
 import { StatusPill } from "../../components/StatusPill";
-import { api, type Build } from "../../lib/api";
+import { api, type Build, type Diagnostic } from "../../lib/api";
 import type { ProjectContext } from "../projects/ProjectShell";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
 export function BuildsPanel() {
   const { project } = useOutletContext<ProjectContext>();
@@ -101,34 +102,40 @@ export function BuildsPanel() {
         </div>
       </header>
 
-      <div className="grid min-h-0 grid-cols-[240px_1fr]">
-        <aside className="overflow-y-auto border-r border-muted">
-          <h3 className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-foreground/60">
-            History
-          </h3>
-          <ul>
-            {buildsQ.data?.map((b) => (
-              <li key={b.id}>
-                <button
-                  onClick={() => {
-                    setActiveId(b.id);
-                    setLiveStatus(null);
-                  }}
-                  className={`block w-full px-3 py-2 text-left text-xs ${
-                    b.id === activeId ? "bg-muted/40" : "hover:bg-muted/30"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span>#{b.id}</span>
-                    <StatusPill status={b.status} />
-                  </div>
-                </button>
-              </li>
-            ))}
-            {buildsQ.data?.length === 0 && (
-              <li className="px-3 py-2 text-xs text-foreground/60">No builds yet.</li>
-            )}
-          </ul>
+      <div className="grid min-h-0 grid-cols-[280px_1fr]">
+        <aside className="flex min-h-0 flex-col border-r border-muted">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <h3 className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-foreground/60">
+              History
+            </h3>
+            <ul className="overflow-y-auto">
+              {buildsQ.data?.map((b) => (
+                <li key={b.id}>
+                  <button
+                    onClick={() => {
+                      setActiveId(b.id);
+                      setLiveStatus(null);
+                    }}
+                    className={`block w-full px-3 py-2 text-left text-xs ${
+                      b.id === activeId ? "bg-muted/40" : "hover:bg-muted/30"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span>#{b.id}</span>
+                      <StatusPill status={b.status} />
+                    </div>
+                  </button>
+                </li>
+              ))}
+              {buildsQ.data?.length === 0 && (
+                <li className="px-3 py-2 text-xs text-foreground/60">No builds yet.</li>
+              )}
+            </ul>
+          </div>
+          <DiagnosticsPanel
+            diagnostics={(active?.diagnostics ?? []) as unknown as Diagnostic[]}
+            projectId={project.id}
+          />
         </aside>
 
         <section className="min-h-0">

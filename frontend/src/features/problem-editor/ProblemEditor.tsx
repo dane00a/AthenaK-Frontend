@@ -1,7 +1,7 @@
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 
 import { EditorStatusBar } from "../../components/EditorStatusBar";
 import { EditorToolbar } from "../../components/EditorToolbar";
@@ -20,6 +20,7 @@ export function ProblemEditor() {
   const { project } = useOutletContext<ProjectContext>();
   const qc = useQueryClient();
   const [prefs, setPrefs] = useEditorPrefs();
+  const [searchParams] = useSearchParams();
 
   const problemQ = useQuery({
     queryKey: ["problem", project.id],
@@ -127,6 +128,17 @@ export function ProblemEditor() {
       "user_problem.cpp",
     );
   }, [latestBuild]);
+
+  // Jump to ?line=&col= from a diagnostics-sidebar click.
+  useEffect(() => {
+    const line = Number(searchParams.get("line"));
+    const col = Number(searchParams.get("col") ?? "1");
+    const editor = editorRef.current;
+    if (!editor || !Number.isFinite(line) || line < 1) return;
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column: col || 1 });
+    editor.focus();
+  }, [searchParams, content]);
 
   const regions = useMemo(
     () =>

@@ -1,11 +1,18 @@
-import Editor from "@monaco-editor/react";
+import Editor, { type OnMount } from "@monaco-editor/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 
+import { EditorStatusBar } from "../../components/EditorStatusBar";
+import { EditorToolbar } from "../../components/EditorToolbar";
 import { api, type InputFile } from "../../lib/api";
 import { parseAthInput, serializeAthInput } from "../../lib/athinput";
+import {
+  ATHINPUT_LANGUAGE_ID,
+  registerAthinputLanguage,
+} from "../../lib/monaco/athinput-language";
+import { useEditorPrefs } from "../../lib/monaco/useEditorPrefs";
 import type { ProjectContext } from "../projects/ProjectShell";
 import { InputForm } from "./InputForm";
 
@@ -14,6 +21,7 @@ type Mode = "form" | "raw";
 export function InputEditor() {
   const { project } = useOutletContext<ProjectContext>();
   const qc = useQueryClient();
+  const [prefs, setPrefs] = useEditorPrefs();
 
   const listQ = useQuery({
     queryKey: ["inputs", project.id],
@@ -24,6 +32,7 @@ export function InputEditor() {
   const [text, setText] = useState("");
   const [mode, setMode] = useState<Mode>("form");
   const [dirty, setDirty] = useState(false);
+  const [cursor, setCursor] = useState<{ line: number; column: number } | null>(null);
 
   useEffect(() => {
     if (listQ.data && activeId === null && listQ.data.length) {
@@ -68,6 +77,32 @@ export function InputEditor() {
     },
   });
 
+  const renameMut = useMutation({
+    mutationFn: (filename: string) => {
+      if (!active) throw new Error("no input selected");
+      return api.updateInput(active.id, { filename });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["inputs", project.id] }),
+  });
+
+  const saveRef = useRef(saveMut.mutate);
+  useEffect(() => {
+    saveRef.current = saveMut.mutate;
+  });
+
+  const handleMount: OnMount = useCallback((editor, monaco) => {
+    registerAthinputLanguage(monaco);
+    editor.addAction({
+      id: "athenak.save-input",
+      label: "Save input file",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+      run: () => saveRef.current(),
+    });
+    editor.onDidChangeCursorPosition((e) =>
+      setCursor({ line: e.position.lineNumber, column: e.position.column }),
+    );
+  }, []);
+
   const doc = useMemo(() => parseAthInput(text), [text]);
 
   return (
@@ -87,12 +122,17 @@ export function InputEditor() {
             <li key={i.id}>
               <button
                 onClick={() => setActiveId(i.id)}
+                onDoubleClick={() => {
+                  const next = prompt("Rename input file:", i.filename);
+                  if (next && next.trim() && next !== i.filename) renameMut.mutate(next.trim());
+                }}
                 className={clsx(
                   "block w-full border-l-2 px-3 py-2 text-left text-sm",
                   i.id === activeId
                     ? "border-accent bg-muted/40"
                     : "border-transparent hover:bg-muted/30",
                 )}
+                title="Double-click to rename"
               >
                 {i.filename}
               </button>
@@ -105,42 +145,44 @@ export function InputEditor() {
       </aside>
 
       <section className="flex h-full flex-col">
-        <div className="flex items-center justify-between gap-2 border-b border-muted px-4 py-2 text-xs">
-          <div className="flex items-center gap-2">
-            <code className="text-foreground/70">{active?.filename ?? "—"}</code>
-            {dirty && <span className="text-amber-400">● unsaved</span>}
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex overflow-hidden rounded-md border border-muted">
+        <EditorToolbar
+          prefs={prefs}
+          onChange={setPrefs}
+          extra={
+            <>
+              <span className="ml-2 text-foreground/60">
+                <code>{active?.filename ?? "—"}</code>
+              </span>
+              <div className="ml-2 flex overflow-hidden rounded-md border border-muted">
+                <button
+                  onClick={() => setMode("form")}
+                  className={clsx(
+                    "px-2 py-0.5 text-xs",
+                    mode === "form" ? "bg-muted" : "text-foreground/60",
+                  )}
+                >
+                  Form
+                </button>
+                <button
+                  onClick={() => setMode("raw")}
+                  className={clsx(
+                    "px-2 py-0.5 text-xs",
+                    mode === "raw" ? "bg-muted" : "text-foreground/60",
+                  )}
+                >
+                  Raw
+                </button>
+              </div>
               <button
-                onClick={() => setMode("form")}
-                className={clsx(
-                  "px-2 py-0.5 text-xs",
-                  mode === "form" ? "bg-muted" : "text-foreground/60",
-                )}
+                disabled={!dirty || !active || saveMut.isPending}
+                onClick={() => saveMut.mutate()}
+                className="ml-auto rounded-md bg-accent px-3 py-0.5 text-xs font-medium text-white disabled:opacity-50"
               >
-                Form
+                {saveMut.isPending ? "Saving…" : "Save  ⌘S"}
               </button>
-              <button
-                onClick={() => setMode("raw")}
-                className={clsx(
-                  "px-2 py-0.5 text-xs",
-                  mode === "raw" ? "bg-muted" : "text-foreground/60",
-                )}
-              >
-                Raw
-              </button>
-            </div>
-            <button
-              disabled={!dirty || !active || saveMut.isPending}
-              onClick={() => saveMut.mutate()}
-              className="rounded-md bg-accent px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
-            >
-              {saveMut.isPending ? "Saving…" : "Save"}
-            </button>
-          </div>
-        </div>
-
+            </>
+          }
+        />
         <div className="min-h-0 flex-1 overflow-y-auto">
           {!active && (
             <p className="p-6 text-foreground/60">
@@ -159,15 +201,18 @@ export function InputEditor() {
           {active && mode === "raw" && (
             <Editor
               height="100%"
-              language="ini"
-              theme="vs-dark"
+              language={ATHINPUT_LANGUAGE_ID}
+              theme={prefs.theme}
               value={text}
               options={{
-                minimap: { enabled: false },
-                fontSize: 13,
+                minimap: { enabled: prefs.minimap },
+                fontSize: prefs.fontSize,
+                wordWrap: prefs.wordWrap ? "on" : "off",
                 tabSize: 2,
                 automaticLayout: true,
+                bracketPairColorization: { enabled: true },
               }}
+              onMount={handleMount}
               onChange={(next) => {
                 setText(next ?? "");
                 setDirty(true);
@@ -175,6 +220,14 @@ export function InputEditor() {
             />
           )}
         </div>
+        {active && (
+          <EditorStatusBar
+            language={mode === "raw" ? "athinput" : "form"}
+            position={mode === "raw" ? cursor : null}
+            dirty={dirty}
+            lineCount={text ? text.split("\n").length : 0}
+          />
+        )}
       </section>
     </div>
   );

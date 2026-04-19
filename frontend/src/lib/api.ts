@@ -171,6 +171,38 @@ export const api = {
       vmax: number;
     }>(`/api/runs/${id}/outputs/${encodeURIComponent(name)}/field?${q}`);
   },
+  getProfile: (
+    id: number,
+    name: string,
+    params: {
+      var: string;
+      axis?: "x" | "y" | "z";
+      index?: number;
+      x0: number;
+      y0: number;
+      x1: number;
+      y1: number;
+      samples?: number;
+    },
+  ) => {
+    const q = new URLSearchParams({
+      var: params.var,
+      axis: params.axis ?? "z",
+      index: String(params.index ?? 0),
+      x0: String(params.x0),
+      y0: String(params.y0),
+      x1: String(params.x1),
+      y1: String(params.y1),
+      samples: String(params.samples ?? 256),
+    }).toString();
+    return request<{
+      variable: string;
+      s: number[];
+      values: number[];
+      x: number[];
+      y: number[];
+    }>(`/api/runs/${id}/outputs/${encodeURIComponent(name)}/profile?${q}`);
+  },
   getStorage: (id: number) =>
     request<{
       total_bytes: number;

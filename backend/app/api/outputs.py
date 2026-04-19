@@ -159,3 +159,53 @@ def read_field(
         vmin=field.vmin,
         vmax=field.vmax,
     )
+
+
+class ProfileOut(BaseModel):
+    variable: str
+    s: list[float]
+    values: list[float]
+    x: list[float]
+    y: list[float]
+
+
+@router.get("/runs/{run_id}/outputs/{name}/profile", response_model=ProfileOut)
+def read_line_profile(
+    run_id: int,
+    name: str,
+    var: str,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    axis: str = "z",
+    index: int = 0,
+    samples: int = 256,
+    db: Session = Depends(get_db),
+) -> ProfileOut:
+    """Sample ``var`` along a line on the heatmap slab. Pixel coordinates
+    live in the same space as :meth:`GET /field` returns (downsampled to
+    max_dim per axis), so the caller can click the rendered Plotly trace
+    and pass those coordinates directly."""
+    run = db.get(Run, run_id)
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    path = _resolve(run, name)
+    kind = _classify(path)
+    if kind not in {"athdf", "hdf5", "h5"}:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"profiles only available for HDF5 files, got .{kind}",
+        )
+    try:
+        prof = outputs_athdf.read_profile(
+            path, variable=var, axis=axis, index=index,
+            x0=x0, y0=y0, x1=x1, y1=y1, samples=samples,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    except OSError as e:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"failed to read: {e}") from e
+    return ProfileOut(
+        variable=prof.variable, s=prof.s, values=prof.values, x=prof.x, y=prof.y
+    )

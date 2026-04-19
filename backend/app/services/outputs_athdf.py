@@ -133,3 +133,65 @@ def read_field(
 def list_variables(path: Path) -> list[str]:
     with h5py.File(path, "r") as f:
         return _list_variables(f)
+
+
+@dataclass
+class LineProfile:
+    variable: str
+    s: list[float]       # parametric distance along the segment [0..1]
+    values: list[float]  # sampled value at each s
+    x: list[float]       # column index at each sample
+    y: list[float]       # row index at each sample
+
+
+def _bilinear(slab: np.ndarray, ys: np.ndarray, xs: np.ndarray) -> np.ndarray:
+    """Bilinear sample at floating-point (y, x) into a 2D array.
+
+    NumPy-only, clamped to the grid. Good enough for a UI profile tool;
+    caller is responsible for bounds.
+    """
+    h, w = slab.shape
+    ys = np.clip(ys, 0.0, h - 1.0)
+    xs = np.clip(xs, 0.0, w - 1.0)
+    y0 = np.floor(ys).astype(int)
+    x0 = np.floor(xs).astype(int)
+    y1 = np.clip(y0 + 1, 0, h - 1)
+    x1 = np.clip(x0 + 1, 0, w - 1)
+    dy = ys - y0
+    dx = xs - x0
+    a = slab[y0, x0]
+    b = slab[y0, x1]
+    c = slab[y1, x0]
+    d = slab[y1, x1]
+    return a * (1 - dx) * (1 - dy) + b * dx * (1 - dy) + c * (1 - dx) * dy + d * dx * dy
+
+
+def read_profile(
+    path: Path,
+    variable: str,
+    axis: str,
+    index: int,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    samples: int = 256,
+    max_dim: int = 512,
+) -> LineProfile:
+    """Sample ``variable`` along the line (x0,y0) -> (x1,y1) on the 2D
+    slab returned by :func:`read_field`. Coordinates are in downsampled
+    grid units (i.e. pixel space of the rendered heatmap)."""
+    field = read_field(path, variable, axis=axis, index=index, max_dim=max_dim)
+    slab = np.asarray(field.z, dtype=float)
+    n = max(2, int(samples))
+    s = np.linspace(0.0, 1.0, n)
+    xs = x0 + (x1 - x0) * s
+    ys = y0 + (y1 - y0) * s
+    values = _bilinear(slab, ys, xs)
+    return LineProfile(
+        variable=variable,
+        s=s.tolist(),
+        values=values.tolist(),
+        x=xs.tolist(),
+        y=ys.tolist(),
+    )

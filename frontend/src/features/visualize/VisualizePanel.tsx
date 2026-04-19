@@ -4,7 +4,7 @@ import { useOutletContext } from "react-router-dom";
 
 import { api, type Run } from "../../lib/api";
 import type { ProjectContext } from "../projects/ProjectShell";
-import { SeriesChart } from "./SeriesChart";
+import { SeriesChart, type SeriesSource } from "./SeriesChart";
 
 export function VisualizePanel() {
   const { project } = useOutletContext<ProjectContext>();
@@ -27,12 +27,19 @@ export function VisualizePanel() {
   });
 
   const [runId, setRunId] = useState<number | null>(null);
+  const [compareIds, setCompareIds] = useState<number[]>([]);
   useEffect(() => {
     if (runId === null && runsQueries.data?.length) {
       const latestSuccess = runsQueries.data.find((r) => r.status === "success");
       setRunId(latestSuccess?.id ?? runsQueries.data[0].id);
     }
   }, [runsQueries.data, runId]);
+
+  const toggleCompare = (id: number) => {
+    setCompareIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].slice(0, 3),
+    );
+  };
 
   const outputsQ = useQuery({
     queryKey: ["outputs", runId],
@@ -61,6 +68,7 @@ export function VisualizePanel() {
             onChange={(e) => {
               setRunId(Number(e.target.value));
               setActiveOutput(null);
+              setCompareIds([]);
             }}
           >
             <option value="">—</option>
@@ -71,6 +79,31 @@ export function VisualizePanel() {
             ))}
           </select>
         </label>
+        {runsQueries.data && runsQueries.data.length > 1 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-foreground/70">
+            <span>Compare with:</span>
+            {runsQueries.data
+              .filter((r) => r.id !== runId && r.status === "success")
+              .map((r) => (
+                <label key={r.id} className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={compareIds.includes(r.id)}
+                    onChange={() => toggleCompare(r.id)}
+                  />
+                  #{r.id}
+                </label>
+              ))}
+            {compareIds.length > 0 && (
+              <button
+                onClick={() => setCompareIds([])}
+                className="text-foreground/50 underline hover:text-foreground"
+              >
+                clear
+              </button>
+            )}
+          </div>
+        )}
       </header>
 
       <div className="grid min-h-0 grid-cols-[240px_1fr]">
@@ -108,13 +141,17 @@ export function VisualizePanel() {
         </aside>
 
         <section className="min-h-0 overflow-auto p-4">
-          {runId && activeOutput && outputsQ.data?.find((o) => o.name === activeOutput)?.kind && (
-            <SeriesChart
-              runId={runId}
-              name={activeOutput}
-              kind={outputsQ.data.find((o) => o.name === activeOutput)!.kind}
-            />
-          )}
+          {runId &&
+            activeOutput &&
+            outputsQ.data?.find((o) => o.name === activeOutput)?.kind &&
+            (() => {
+              const kind = outputsQ.data!.find((o) => o.name === activeOutput)!.kind;
+              const sources: SeriesSource[] = [
+                { runId, name: activeOutput, kind },
+                ...compareIds.map((id) => ({ runId: id, name: activeOutput, kind })),
+              ];
+              return <SeriesChart sources={sources} />;
+            })()}
         </section>
       </div>
     </div>

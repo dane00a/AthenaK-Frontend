@@ -548,7 +548,9 @@ HPC / plug-n-play compute (planned — see [`docs/HPC-SSH.md`](./docs/HPC-SSH.md
 
 ## 12. Reference
 
-- The long-form original implementation plan is at `/root/.claude/plans/analyze-this-repository-and-squishy-yao.md` (source of truth for the initial architecture).
-- **HPC / SSH plug-and-play design lives at [`docs/HPC-SSH.md`](./docs/HPC-SSH.md)** — that's the source of truth for the compute abstraction and the J0–J6 roadmap. Read it before touching anything under `services/compute/` or `api/compute.py`.
-- **Post-HPC enhancement roadmap lives at [`docs/ROADMAP.md`](./docs/ROADMAP.md)** — 15 short cards (K0–K14) for improvements like cancellation, compiler diagnostics, retention/cleanup, project templates, auth, `.athdf` viewer, etc. Each card is self-contained and independent; pick by value-to-effort.
-- This CLAUDE.md is the everyday operating guide. Keep all four consistent when making significant changes.
+- **Fresh-machine setup:** [`docs/SETUP.md`](./docs/SETUP.md) — prerequisites, clone + build AthenaK, first-run smoke test, troubleshooting, env-var table, prod-mode (Postgres / auth / reverse proxy / GPU).
+- **Architecture decision records:** [`docs/decisions/`](./docs/decisions/) — short records for every non-obvious choice (trust sandboxing, FastAPI/Celery/Redis, SQLite-dev/Postgres-prod, Transport × Scheduler compute, Slurm optionality, HMAC cookies, ccache, retention, user-region markers, two-place logs).
+- **HPC / SSH plug-and-play design:** [`docs/HPC-SSH.md`](./docs/HPC-SSH.md) — source of truth for the compute abstraction and the J0–J6 roadmap. Read it before touching anything under `services/compute/` or `api/compute.py`.
+- **Post-HPC enhancement roadmap:** [`docs/ROADMAP.md`](./docs/ROADMAP.md) — the K0–K14 cards (most now shipped on `claude/add-claude-documentation-RYvkU`).
+- The long-form original implementation plan is at `/root/.claude/plans/analyze-this-repository-and-squishy-yao.md` (historical; the ADRs supersede it for individual decisions).
+- This CLAUDE.md is the everyday operating guide. Keep the above consistent when making significant changes.

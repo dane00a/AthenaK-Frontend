@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:5173"
     build_jobs: int | None = None
+    app_env: str = "dev"  # "dev" -> console logs, anything else -> JSON
 
     @property
     def cors_origin_list(self) -> list[str]:

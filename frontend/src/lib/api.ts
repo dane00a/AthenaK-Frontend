@@ -32,6 +32,8 @@ export type Build = {
   binary_path: string | null;
   error: string | null;
   diagnostics: Diagnostic[];
+  source_hash: string | null;
+  reused_from: number | null;
 };
 export type Run = {
   id: number;

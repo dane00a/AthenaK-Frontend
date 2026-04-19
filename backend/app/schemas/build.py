@@ -23,6 +23,8 @@ class BuildOut(BaseModel):
     binary_path: str | None
     error: str | None
     diagnostics: list[dict[str, Any]] = []
+    source_hash: str | None = None
+    reused_from: int | None = None
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime

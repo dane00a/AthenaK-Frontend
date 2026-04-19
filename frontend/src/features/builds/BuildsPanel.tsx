@@ -90,6 +90,11 @@ export function BuildsPanel() {
               {cancelMut.isPending ? "Cancelling…" : "Cancel"}
             </button>
           )}
+          {active?.reused_from != null && (
+            <span className="rounded border border-muted px-1.5 py-0.5 text-[10px] text-foreground/60">
+              reused from #{active.reused_from}
+            </span>
+          )}
           {active?.binary_path && (
             <code className="text-xs text-foreground/60">{active.binary_path}</code>
           )}

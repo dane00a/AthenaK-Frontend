@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json as _json
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -26,6 +30,15 @@ def list_builds(project_id: int, db: Session = Depends(get_db)) -> list[Build]:
     )
 
 
+def _compute_source_hash(project: Project, cmake_flags: dict) -> str:
+    problem_content = project.problem_file.content if project.problem_file else ""
+    blob = _json.dumps(
+        {"p": problem_content, "f": cmake_flags, "r": project.athenak_ref},
+        sort_keys=True,
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 @router.post(
     "/projects/{project_id}/builds",
     response_model=BuildOut,
@@ -37,7 +50,34 @@ def create_build(
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
-    build = Build(project_id=project_id, cmake_flags=body.cmake_flags)
+
+    source_hash = _compute_source_hash(project, body.cmake_flags)
+    prior = db.scalar(
+        select(Build)
+        .where(
+            Build.project_id == project_id,
+            Build.source_hash == source_hash,
+            Build.status == BuildStatus.success,
+            Build.binary_path.is_not(None),
+        )
+        .order_by(Build.created_at.desc())
+    )
+    build = Build(
+        project_id=project_id, cmake_flags=body.cmake_flags, source_hash=source_hash
+    )
+    if prior is not None:
+        # Cached hit: mirror the prior binary and skip the Celery task entirely.
+        build.status = BuildStatus.success
+        build.binary_path = prior.binary_path
+        build.reused_from = prior.id
+        build.diagnostics = list(prior.diagnostics or [])
+        build.started_at = datetime.now(UTC)
+        build.finished_at = build.started_at
+        db.add(build)
+        db.commit()
+        db.refresh(build)
+        return build
+
     db.add(build)
     db.commit()
     db.refresh(build)

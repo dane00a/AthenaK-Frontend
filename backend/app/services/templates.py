@@ -18,6 +18,17 @@ from typing import Literal
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+PHYSICS_MODULES_ALL = (
+    "hydro",
+    "mhd",
+    "srhydro",
+    "srmhd",
+    "grhydro",
+    "grmhd",
+    "radiation",
+)
+INITIAL_CONDITIONS_ALL = ("uniform", "shock_tube", "blast", "gaussian", "custom")
+
 PhysicsModule = Literal["hydro", "mhd", "srhydro", "srmhd", "grhydro", "grmhd", "radiation"]
 InitialCondition = Literal["uniform", "shock_tube", "blast", "gaussian", "custom"]
 

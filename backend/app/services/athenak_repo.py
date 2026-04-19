@@ -22,9 +22,14 @@ def _lock_path() -> Path:
 
 
 def upstream_lock() -> FileLock:
-    """A process-wide lock for mutations against the upstream clone."""
+    """A process-wide lock for mutations against the upstream clone.
+
+    ``is_singleton=True`` makes repeated calls return the same underlying
+    FileLock for the same path, so nested uses in the same thread don't
+    deadlock.
+    """
     _lock_path().parent.mkdir(parents=True, exist_ok=True)
-    return FileLock(str(_lock_path()))
+    return FileLock(str(_lock_path()), is_singleton=True)
 
 
 def pgen_dir() -> Path:

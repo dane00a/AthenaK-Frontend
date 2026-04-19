@@ -1,4 +1,4 @@
-.PHONY: help install dev backend frontend worker redis test lint fmt migrate clean bootstrap
+.PHONY: help install dev backend frontend worker redis test lint fmt migrate clean bootstrap hooks
 
 help:
 	@echo "AthenaK-Frontend dev commands"
@@ -62,3 +62,6 @@ fmt:
 clean:
 	rm -rf backend/.pytest_cache backend/.ruff_cache backend/athenak.db
 	rm -rf frontend/dist frontend/.vite frontend/coverage
+
+hooks:
+	pipx run pre-commit install

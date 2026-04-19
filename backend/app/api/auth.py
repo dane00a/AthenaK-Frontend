@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, HTTPException, Response, status
 from pydantic import BaseModel
 
-from ..auth import clear_cookie, issue_cookie, verify_password
+from ..auth import _decode_token, clear_cookie, issue_cookie, verify_password
 from ..config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -19,9 +19,13 @@ class AuthStatus(BaseModel):
 
 
 @router.get("/status", response_model=AuthStatus)
-def auth_status(session: str | None = None) -> AuthStatus:
-    # The frontend reads this to decide whether to show the login page.
-    return AuthStatus(enabled=settings.auth_enabled, authenticated=not settings.auth_enabled)
+def auth_status(
+    session: str | None = Cookie(default=None, alias=settings.auth_cookie_name),
+) -> AuthStatus:
+    if not settings.auth_enabled:
+        return AuthStatus(enabled=False, authenticated=True)
+    authenticated = bool(session and _decode_token(session))
+    return AuthStatus(enabled=True, authenticated=authenticated)
 
 
 @router.post("/login", status_code=status.HTTP_204_NO_CONTENT)

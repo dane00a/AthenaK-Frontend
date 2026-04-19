@@ -23,6 +23,14 @@ def test_auth_status_reports_state(client: TestClient, monkeypatch) -> None:
     assert s["enabled"] is True and s["authenticated"] is False
 
 
+def test_auth_status_authenticated_after_login(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(config_module.settings, "auth_enabled", True)
+    monkeypatch.setattr(config_module.settings, "admin_password_hash", hash_password("pw"))
+    client.post("/api/auth/login", json={"password": "pw"})
+    s = client.get("/api/auth/status").json()
+    assert s["enabled"] is True and s["authenticated"] is True
+
+
 def test_login_sets_cookie_and_unblocks(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr(config_module.settings, "auth_enabled", True)
     monkeypatch.setattr(config_module.settings, "admin_password_hash", hash_password("pw"))

@@ -120,7 +120,12 @@ export function ProblemEditor() {
       clearDiagnostics(monaco, model);
       return;
     }
-    applyDiagnostics(monaco, model, latestBuild.diagnostics, "user_problem.cpp");
+    applyDiagnostics(
+      monaco,
+      model,
+      (latestBuild.diagnostics ?? []) as unknown as import("../../lib/api").Diagnostic[],
+      "user_problem.cpp",
+    );
   }, [latestBuild]);
 
   const regions = useMemo(

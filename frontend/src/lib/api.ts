@@ -1,44 +1,22 @@
+import type { components } from "./api-types";
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
-export type Project = {
-  id: number;
-  name: string;
-  slug: string;
-  physics_module: string;
-  athenak_ref: string;
-  created_at: string;
-  updated_at: string;
-};
+// Canonical response shapes flow from the generated OpenAPI types.
+// Regenerate via `pnpm gen:api` against a running backend. A schema drift
+// surfaces as a tsc error here rather than at runtime.
+export type Project = components["schemas"]["ProjectOut"];
+export type ProblemFile = components["schemas"]["ProblemFileOut"];
+export type InputFile = components["schemas"]["InputFileOut"];
+export type Build = components["schemas"]["BuildOut"];
+export type Run = components["schemas"]["RunOut"];
 
-export type ProblemFile = { id: number; filename: string; content: string; updated_at: string };
-export type InputFile = {
-  id: number;
-  project_id: number;
-  filename: string;
-  content: string;
-  updated_at: string;
-};
 export type Diagnostic = {
   file: string;
   line: number;
   column: number;
   severity: "error" | "warning" | "info";
   message: string;
-};
-
-export type Build = {
-  id: number;
-  status: "queued" | "running" | "success" | "failed" | "cancelled";
-  binary_path: string | null;
-  error: string | null;
-  diagnostics: Diagnostic[];
-  source_hash: string | null;
-  reused_from: number | null;
-};
-export type Run = {
-  id: number;
-  status: "queued" | "running" | "success" | "failed" | "cancelled";
-  exit_code: number | null;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

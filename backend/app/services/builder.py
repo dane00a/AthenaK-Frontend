@@ -11,6 +11,7 @@ Flow (see CLAUDE.md §5.2):
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -96,6 +97,11 @@ def build(
 
             try:
                 flags = {"PROBLEM": "user_problem", "CMAKE_BUILD_TYPE": "Release"}
+                # Wire ccache in automatically when present. Free 5-10x rebuild
+                # speedup, and it composes with any user-supplied launcher.
+                if shutil.which("ccache"):
+                    flags.setdefault("CMAKE_CXX_COMPILER_LAUNCHER", "ccache")
+                    flags.setdefault("CMAKE_C_COMPILER_LAUNCHER", "ccache")
                 flags.update(cmake_flags)
 
                 configure_cmd = [
